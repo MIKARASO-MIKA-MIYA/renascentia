@@ -1,0 +1,133 @@
+@import "tailwindcss";
+@import "./header.css";
+@import "./home.css";
+
+@theme {
+  --font-sans: "Manrope Variable", system-ui, sans-serif;
+  --font-serif: Georgia, "Times New Roman", serif;
+  --color-canvas: #ffffff;
+  --color-surface: #f4f3f1;
+  --color-ink: #151517;
+  --color-muted: #737373;
+  --color-border: #d6d6d8;
+  --color-accent: #fc3d21;
+  --color-accent-ink: #a62818;
+  --color-masthead: #000000;
+  --color-panel: #17171b;
+  --color-masthead-ink: #ffffff;
+  --color-masthead-border: #3d3d40;
+  --color-masthead-focus: #75bfff;
+  --color-focus: #176891;
+  --color-gold: #e4b675;
+}
+
+:root {
+  --page-max-width: 90rem;
+  --page-gutter: clamp(1rem, 4vw, 3.5rem);
+  --page-space: clamp(2.75rem, 6vw, 5.75rem);
+  --heading-size: clamp(2rem, 1.3rem + 3vw, 4rem);
+}
+
+@layer base {
+  body {
+    @apply bg-canvas font-sans text-base leading-relaxed text-ink;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus-color, var(--color-focus));
+    outline-offset: 3px;
+  }
+
+  [id] {
+    scroll-margin-top: 1rem;
+  }
+}
+
+@utility page-container {
+  width: min(calc(100% - 2 * var(--page-gutter)), var(--page-max-width));
+  margin-inline: auto;
+}
+
+@utility page-spacing {
+  padding-block: var(--page-space);
+}
+
+@utility heading-display {
+  font-size: var(--heading-size);
+  font-weight: 790;
+  line-height: 1.08;
+  letter-spacing: -0.036em;
+}
+
+@utility section-title {
+  font-size: clamp(1.65rem, 1.14rem + 1.65vw, 2.75rem);
+  font-weight: 790;
+  line-height: 1.15;
+  letter-spacing: -0.028em;
+}
+
+@utility dark-section {
+  --focus-color: var(--color-masthead-focus);
+  background: var(--color-panel);
+  color: var(--color-masthead-ink);
+}
+
+@utility text-link {
+  color: var(--color-accent-ink);
+  font-weight: 720;
+  text-underline-offset: 0.2em;
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+@utility action-link {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 770;
+  line-height: 1.25;
+  text-underline-offset: 0.2em;
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+@utility round-arrow {
+  display: inline-grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: white;
+}
+
+@utility cta {
+  display: inline-flex;
+  min-height: 2.875rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  border-radius: 0.1875rem;
+  padding: 0.65rem 1rem;
+  background: var(--color-accent);
+  color: #101010;
+  font-weight: 800;
+  line-height: 1.3;
+  transition: background-color 150ms;
+  &:hover {
+    background: #ff604b;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
