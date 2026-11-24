@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "include": [
+    "../next-env.d.ts",
+    "../**/*.ts",
+    "../**/*.tsx",
+    "../.next/cms-browser/dev/types/**/*.ts"
+  ]
+}

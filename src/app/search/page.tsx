@@ -13,7 +13,7 @@ export default async function SearchPage({
   const { q } = await searchParams;
   const query =
     (Array.isArray(q) ? q[0] : q)?.trim().slice(0, maxQueryLength) ?? "";
-  const results = searchMaterials(query);
+  const results = await searchMaterials(query);
 
   return (
     <SectionPage section={sections.search}>

@@ -1,9 +1,9 @@
 import { ThematicPage } from "@/components/thematic-page";
 import { sections } from "@/config/site";
 import { guides } from "@/content/section-guides";
-import { pageMetadata } from "@/lib/seo";
+import { cmsPageMetadata } from "@/lib/seo";
 
-export const metadata = pageMetadata(sections.education);
+export const generateMetadata = () => cmsPageMetadata(sections.education);
 
 export default function EducationPage() {
   return (

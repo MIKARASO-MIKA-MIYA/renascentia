@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { site } from "@/config/site";
 import type { Material } from "@/content/types";
 import { materialHref, type Collection } from "./materials";
+import { publishedEntry } from "./cms/data";
 
 const vercelDomain = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
 const configuredUrl =
@@ -47,11 +48,28 @@ export function pageMetadata({
   };
 }
 
+export async function cmsPageMetadata(input: PageMetadata): Promise<Metadata> {
+  const entry = await publishedEntry(input.href);
+  return pageMetadata(
+    entry
+      ? {
+          ...input,
+          title: entry.body.title,
+          description: entry.body.description,
+          indexable:
+            input.indexable === false && entry.kind !== "publication"
+              ? false
+              : true,
+        }
+      : input,
+  );
+}
+
 export function materialMetadata(
   collection: Collection,
   material: Material,
-): Metadata {
-  return pageMetadata({
+): Promise<Metadata> {
+  return cmsPageMetadata({
     title: material.title,
     description: material.description,
     href: materialHref(collection, material.slug),

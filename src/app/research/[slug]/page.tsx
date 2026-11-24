@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MaterialCover } from "@/components/material-cover";
 import { MaterialDetail } from "@/components/material-detail";
+import { CmsRegion, cmsView } from "@/components/cms/region";
 import { ResourceList } from "@/components/resource-list";
 import { sections } from "@/config/site";
 import { images } from "@/content/images";
@@ -8,6 +9,7 @@ import { publications } from "@/content/publications";
 import { research } from "@/content/research";
 import { getMaterial, materialHref } from "@/lib/materials";
 import { materialMetadata } from "@/lib/seo";
+import { assetWithFields } from "@/lib/cms/registry";
 
 export const dynamicParams = false;
 
@@ -27,6 +29,11 @@ export default async function ResearchDetailPage({
 }: PageProps<"/research/[slug]">) {
   const { slug } = await params;
   const material = getMaterial(research, slug);
+  const key = "/research/" + slug;
+  const [{ fields }, { fields: imageFields }] = await Promise.all([
+    cmsView(key),
+    cmsView("/sources~images"),
+  ]);
   const program = "code" in material ? material : undefined;
   const related = publications
     .filter((item) => item.researchSlug === slug)
@@ -41,17 +48,29 @@ export default async function ResearchDetailPage({
       section={sections.research}
       material={material}
       context={program?.code}
-      cover={program && <MaterialCover asset={images[program.imageKey]} />}
+      cover={
+        program && (
+          <MaterialCover
+            asset={assetWithFields(
+              images[program.imageKey],
+              imageFields,
+              fields.cover,
+            )}
+          />
+        )
+      }
     >
       {program && (
-        <section className="mt-8 max-w-[70ch]">
-          <h2 className="mb-3 text-xl font-extrabold">Вопросы программы</h2>
-          <ul className="list-disc space-y-2 pl-5">
-            {program.questions.map((question) => (
-              <li key={question}>{question}</li>
-            ))}
-          </ul>
-        </section>
+        <CmsRegion name={key + "~questions"} replace>
+          <section className="mt-8 max-w-[70ch]">
+            <h2 className="mb-3 text-xl font-extrabold">Вопросы программы</h2>
+            <ul className="list-disc space-y-2 pl-5">
+              {program.questions.map((question) => (
+                <li key={question}>{question}</li>
+              ))}
+            </ul>
+          </section>
+        </CmsRegion>
       )}
       {related.length > 0 ? (
         <section className="mt-8">

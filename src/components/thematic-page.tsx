@@ -11,12 +11,25 @@ export type ResourceGroup = {
 export function ThematicPage({
   section,
   groups,
+  after,
 }: {
   section: SiteSection;
   groups: readonly ResourceGroup[];
+  after?: ResourceGroup;
 }) {
   return (
-    <SectionPage section={section}>
+    <SectionPage
+      section={section}
+      replace
+      after={
+        after && (
+          <section className="mt-9 max-w-3xl">
+            <h2 className="mb-3 text-xl font-extrabold">{after.title}</h2>
+            <ResourceList items={after.items} />
+          </section>
+        )
+      }
+    >
       {groups.map(({ id, title, items }) => (
         <section id={id} key={title} className="mt-9 max-w-3xl">
           <h2 className="mb-3 text-xl font-extrabold">{title}</h2>

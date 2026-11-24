@@ -1,18 +1,22 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { Article } from "@/content/articles";
-import { images } from "@/content/images";
+import { images, type ImageAsset, type ImageKey } from "@/content/images";
 import { materialHref } from "@/lib/materials";
 import { readingTime } from "@/lib/reading-time";
 
 export function PublicationCard({
   article,
+  asset,
   variant,
 }: {
-  article: Article;
+  article: Pick<Article, "slug" | "title" | "category" | "body"> & {
+    imageKey: ImageKey;
+  };
+  asset?: ImageAsset;
   variant: "feature" | "compact" | "menu";
 }) {
-  const image = images[article.imageKey];
+  const image = asset ?? images[article.imageKey];
   const href = materialHref("publications", article.slug);
   const metadata = `${article.category} · ${readingTime(article.body)}`;
 
@@ -21,6 +25,7 @@ export function PublicationCard({
       <Link href={href} className="image-tile editorial-tile">
         <Image
           src={image.src}
+          unoptimized={!image.src.startsWith("/images/")}
           alt=""
           fill
           sizes="(min-width: 1024px) 46vw, (min-width: 640px) 46vw, 92vw"
@@ -45,6 +50,7 @@ export function PublicationCard({
         <span className="relative mt-0.5 block size-14 shrink-0 overflow-hidden rounded-full bg-surface sm:size-16">
           <Image
             src={image.src}
+            unoptimized={!image.src.startsWith("/images/")}
             alt=""
             fill
             sizes="64px"
@@ -69,6 +75,7 @@ export function PublicationCard({
       <div className="relative aspect-[1.85] overflow-hidden rounded-xs bg-panel">
         <Image
           src={image.src}
+          unoptimized={!image.src.startsWith("/images/")}
           alt=""
           fill
           sizes="(min-width: 1024px) 23vw, (min-width: 640px) 30vw, 92vw"

@@ -6,7 +6,7 @@ export const site = {
     "Студенческий исследовательский проект о философии, науке, истории и искусстве эпохи Возрождения.",
   language: "ru",
   locale: "ru_RU",
-  version: "0.0.2",
+  version: "0.0.3",
 } as const;
 
 export type SiteSection = {

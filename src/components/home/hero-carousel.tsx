@@ -42,7 +42,7 @@ export function HeroCarousel({
   );
   const playing = playback ?? !reducedMotion;
   const rotating = playing && !hovered && slides.length > 1;
-  const slide = slides[index];
+  const slide = slides[index % slides.length];
 
   useEffect(() => {
     if (!rotating) return;
@@ -77,7 +77,7 @@ export function HeroCarousel({
     >
       <AnimatePresence initial={false}>
         <motion.div
-          key={slide.href}
+          key={index + ":" + slide.href}
           className="hero-image"
           initial={reducedMotion ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -86,6 +86,7 @@ export function HeroCarousel({
         >
           <Image
             src={slide.image.src}
+            unoptimized={!slide.image.src.startsWith("/images/")}
             fill
             alt=""
             sizes="100vw"
@@ -124,7 +125,7 @@ export function HeroCarousel({
           </button>
           {slides.map((item, slideIndex) => (
             <button
-              key={item.href}
+              key={slideIndex + ":" + item.href}
               type="button"
               className="hero-dot"
               aria-label={`Слайд ${slideIndex + 1}. ${item.title}`}

@@ -1,6 +1,6 @@
 import { SectionPage } from "@/components/section-page";
 import { sections } from "@/config/site";
-import { pageMetadata } from "@/lib/seo";
+import { cmsPageMetadata } from "@/lib/seo";
 
 const events = [
   {
@@ -26,7 +26,7 @@ const events = [
   },
 ];
 
-export const metadata = pageMetadata(sections.timeline);
+export const generateMetadata = () => cmsPageMetadata(sections.timeline);
 
 export default function TimelinePage() {
   return (

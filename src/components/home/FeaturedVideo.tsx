@@ -63,6 +63,7 @@ export function FeaturedVideo({
             <>
               <Image
                 src={cover.src}
+                unoptimized={!cover.src.startsWith("/images/")}
                 alt=""
                 fill
                 sizes="(min-width: 768px) 57vw, 92vw"

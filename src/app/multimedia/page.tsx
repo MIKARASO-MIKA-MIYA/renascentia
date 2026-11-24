@@ -3,19 +3,37 @@ import { ImageGallery } from "@/components/home/image-gallery";
 import { SectionPage } from "@/components/section-page";
 import { sections } from "@/config/site";
 import { images } from "@/content/images";
-import { featuredVideo } from "@/content/video";
-import { pageMetadata } from "@/lib/seo";
+import { CmsRegion, cmsView } from "@/components/cms/region";
+import { assetWithFields } from "@/lib/cms/registry";
+import { videoSource } from "@/lib/cms/schema";
+import { cmsPageMetadata } from "@/lib/seo";
 
-export const metadata = pageMetadata(sections.multimedia);
+export const generateMetadata = () => cmsPageMetadata(sections.multimedia);
 
-export default function MultimediaPage() {
+export default async function MultimediaPage() {
+  const [{ fields }, { fields: imageFields }] = await Promise.all([
+    cmsView("/~video"),
+    cmsView("/sources~images"),
+  ]);
+  const video = videoSource(fields.url);
   return (
     <>
       <SectionPage section={sections.multimedia} />
-      <FeaturedVideo
-        video={featuredVideo.video}
-        cover={images[featuredVideo.cover]}
-      />
+      <CmsRegion name="/~video">
+        <FeaturedVideo
+          video={
+            video?.type === "youtube"
+              ? {
+                  id: video.id,
+                  title: fields.headline || "Видео",
+                  author: fields.author,
+                  description: fields.summary,
+                }
+              : null
+          }
+          cover={assetWithFields(images.sanlorenzo, imageFields, fields.cover)}
+        />
+      </CmsRegion>
       <div className="pt-[var(--page-space)]">
         <ImageGallery inArchive />
       </div>

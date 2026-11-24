@@ -8,6 +8,7 @@ export function MaterialCover({ asset }: { asset: ImageAsset }) {
       <div className="relative aspect-[2.1] overflow-hidden rounded-xs bg-surface">
         <Image
           src={asset.src}
+          unoptimized={!asset.src.startsWith("/images/")}
           alt={asset.alt}
           fill
           sizes="(min-width: 1024px) 896px, 92vw"

@@ -1,5 +1,6 @@
 import "@fontsource-variable/manrope";
 import "./globals.css";
+import "./cms.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { SiteFooter } from "@/components/site-footer";

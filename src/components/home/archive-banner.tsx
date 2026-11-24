@@ -1,38 +1,36 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { sections } from "@/config/site";
-import { images } from "@/content/images";
+import { CmsRegion, cmsView } from "../cms/region";
 
-export function ArchiveBanner() {
+export async function ArchiveBanner() {
+  const { fields } = await cmsView("/~archive");
   return (
-    <section
-      className="archive-banner [--focus-color:var(--color-masthead-focus)]"
-      aria-labelledby="archive-banner-title"
-    >
-      <Image
-        src={images.map.src}
-        alt=""
-        fill
-        sizes="100vw"
-        className="-z-10 object-cover object-center"
-      />
-      <div className="page-container page-spacing">
-        <div className="max-w-[52ch]">
-          <h2 id="archive-banner-title" className="section-title">
-            Откройте эпоху, которая изменила мир
-          </h2>
-          <p className="mt-4 max-w-[43ch] text-white/95">
-            Исследуйте идеи великих мыслителей, исторические документы и
-            философские труды, сформировавшие новое мировоззрение европейского
-            общества.
-          </p>
-          <Link href={sections.archive.href} className="cta mt-6">
-            Перейти в исторический архив{" "}
-            <ArrowRight size={18} aria-hidden="true" />
-          </Link>
+    <CmsRegion name="/~archive">
+      <section
+        className="archive-banner [--focus-color:var(--color-masthead-focus)]"
+        aria-labelledby="archive-banner-title"
+      >
+        <Image
+          src={fields.image}
+          unoptimized={!fields.image.startsWith("/images/")}
+          alt=""
+          fill
+          sizes="100vw"
+          className="-z-10 object-cover object-center"
+        />
+        <div className="page-container page-spacing">
+          <div className="max-w-[52ch]">
+            <h2 id="archive-banner-title" className="section-title">
+              {fields.headline}
+            </h2>
+            <p className="mt-4 max-w-[43ch] text-white/95">{fields.summary}</p>
+            <Link href={fields.href} className="cta mt-6">
+              {fields.button} <ArrowRight size={18} aria-hidden="true" />
+            </Link>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </CmsRegion>
   );
 }

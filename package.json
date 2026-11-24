@@ -1,6 +1,6 @@
 {
   "name": "renaissance-research-portal",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "engines": {
     "node": "24.x"
@@ -12,19 +12,40 @@
     "typecheck": "next typegen && tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier . --write",
-    "format:check": "prettier . --check"
+    "format:check": "prettier . --check",
+    "cms:seed": "tsx scripts/seed-cms.ts",
+    "test:cms": "tsx --test tests/cms.test.ts",
+    "test:browser": "tsx --test tests/cms-browser.test.ts"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.2.0",
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.119.2",
+    "@tiptap/core": "3.35.0",
+    "@tiptap/extension-details": "3.35.0",
+    "@tiptap/extension-subscript": "3.35.0",
+    "@tiptap/extension-superscript": "3.35.0",
+    "@tiptap/extension-table": "3.35.0",
+    "@tiptap/extension-task-item": "3.35.0",
+    "@tiptap/extension-task-list": "3.35.0",
+    "@tiptap/extension-text-align": "3.35.0",
+    "@tiptap/extension-text-style": "3.35.0",
+    "@tiptap/pm": "3.35.0",
+    "@tiptap/react": "3.35.0",
+    "@tiptap/starter-kit": "3.35.0",
     "lucide-react": "1.73.0",
     "motion": "^12.23.24",
     "next": "16.4.6",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "sharp": "0.35.5",
+    "zod": "4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.6.0",
     "@eslint/js": "10.0.1",
     "@next/eslint-plugin-next": "16.4.6",
+    "@playwright/test": "1.65.1",
     "@tailwindcss/postcss": "4.3.5",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
@@ -34,6 +55,7 @@
     "postcss": "8.5.33",
     "prettier": "3.10.1",
     "tailwindcss": "4.3.5",
+    "tsx": "4.23.15",
     "typescript": "5.9.3",
     "typescript-eslint": "8.72.2"
   }

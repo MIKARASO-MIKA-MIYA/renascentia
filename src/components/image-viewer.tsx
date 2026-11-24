@@ -69,6 +69,7 @@ export function ImageViewer({
               className={`relative block w-full overflow-hidden rounded-xs bg-surface ${layout === "artwork" ? "aspect-[1.85]" : "aspect-[1.6]"}`}
             >
               <Image
+                unoptimized={!asset.src.startsWith("/images/")}
                 src={asset.src}
                 fill
                 alt=""
@@ -148,6 +149,7 @@ export function ImageViewer({
             </div>
           </div>
           <Image
+            unoptimized={!selected.asset.src.startsWith("/images/")}
             src={selected.asset.src}
             alt={selected.asset.alt}
             width={selected.asset.width}

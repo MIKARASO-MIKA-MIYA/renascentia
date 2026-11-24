@@ -2,8 +2,9 @@ import type { MetadataRoute } from "next";
 import { sections } from "@/config/site";
 import { collectionNames, collections, materialHref } from "@/lib/materials";
 import { siteUrl } from "@/lib/seo";
+import { publishedEntries } from "@/lib/cms/data";
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   if (!siteUrl) return [];
 
   const sectionPaths = Object.values(sections)
@@ -15,7 +16,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       .map(({ slug }) => materialHref(collection, slug)),
   );
 
-  return ["/", ...sectionPaths, ...materialPaths].map((path) => ({
+  const cmsPaths = (await publishedEntries())
+    .filter(({ path, key }) => path === key)
+    .map(({ path }) => path);
+  return [
+    ...new Set(["/", ...sectionPaths, ...materialPaths, ...cmsPaths]),
+  ].map((path) => ({
     url: new URL(path, siteUrl).href,
   }));
 }
