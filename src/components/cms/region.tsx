@@ -40,7 +40,7 @@ export async function CmsEdit({
 }) {
   if (!writerConfigured()) return null;
   const editor = await getEditor();
-  if (!editor) return null;
+  if (!editor || (!inline && !editor.editing)) return null;
   const builtin = seedByKey.get(name);
   const choices = new Map<string, string>();
   if (name === "/~featured") {
@@ -80,7 +80,9 @@ export async function CmsRegion({
   className?: string;
 }) {
   const { changedBlocks, blocks } = await cmsView(name);
-  const showEditor = Boolean(writerConfigured() && (await getEditor()));
+  const showEditor = Boolean(
+    writerConfigured() && (await getEditor())?.editing,
+  );
   const rendered = (
     <>
       {header}

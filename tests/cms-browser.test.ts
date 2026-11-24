@@ -17,19 +17,33 @@ const base = "http://127.0.0.1:3186";
 const edge = "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
 
 async function signIn(page: Page, email: string) {
-  await page.goto(base + "/admin/login");
   await page.getByLabel("Электронная почта").fill(email);
   await page.getByLabel("Пароль").fill(fixturePassword);
   await page.getByRole("button", { name: "Войти", exact: true }).click();
 }
 
+function pencils(page: Page) {
+  return page
+    .getByRole("main")
+    .getByRole("button", { name: "Редактировать", exact: true });
+}
+
+function accountTrigger(page: Page) {
+  return page.getByRole("button", { name: "Аккаунт", exact: true });
+}
+
+async function openAccount(page: Page) {
+  const trigger = accountTrigger(page);
+  if ((await trigger.getAttribute("aria-expanded")) !== "true")
+    await trigger.click();
+  const panel = page.locator("#header-panel-account");
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
 async function openEditor(page: Page, path: string) {
   await page.goto(base + path);
-  await page
-    .getByRole("main")
-    .getByRole("button", { name: "Редактировать", exact: true })
-    .first()
-    .click();
+  await pencils(page).first().click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   return dialog;
@@ -120,7 +134,37 @@ test(
       const errors: string[] = [];
       for (const page of [visitor, owner, editor])
         page.on("pageerror", (error) => errors.push(error.message));
-      for (const width of [360, 768, 1024, 1440, 1920]) {
+      await visitor.setViewportSize({ width: 360, height: 740 });
+      assert.equal(
+        (await visitor.goto(base + "/research/rp-001"))?.status(),
+        200,
+      );
+      await expect(
+        visitor.getByRole("main").getByRole("heading", { level: 1 }),
+      ).toBeVisible();
+      await expect(visitor.locator(".welcome-dialog")).toHaveCount(0);
+      await expect(pencils(visitor)).toHaveCount(0);
+      await visitor.goto(base + "/");
+      const welcome = visitor.getByRole("dialog", { name: "Добро пожаловать" });
+      await expect(welcome).toBeVisible();
+      assert.ok(
+        await welcome.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth + 1,
+        ),
+      );
+      await welcome.getByRole("button", { name: "Войти как гость" }).click();
+      await expect(welcome).toHaveCount(0);
+      const visitorCookies = await visitor.context().cookies();
+      assert.equal(
+        visitorCookies.find(({ name }) => name === "renascentia-visit")?.value,
+        "guest",
+      );
+      assert.ok(
+        visitorCookies.every(
+          ({ name }) => !name.startsWith("renascentia-auth"),
+        ),
+      );
+      for (const width of [360, 768, 1024, 1200, 1440, 1920]) {
         await visitor.setViewportSize({ width, height: 900 });
         const response = await visitor.goto(base + "/", {
           waitUntil: "domcontentloaded",
@@ -129,6 +173,8 @@ test(
         await expect(
           visitor.getByRole("main").getByRole("heading", { level: 1 }),
         ).toBeVisible();
+        await expect(welcome).toHaveCount(0);
+        await expect(accountTrigger(visitor)).toBeVisible();
         assert.ok(
           await visitor.evaluate(
             () => document.documentElement.scrollWidth <= innerWidth + 1,
@@ -140,7 +186,18 @@ test(
         ).toHaveCount(0);
       }
       await expect(visitor.getByRole("navigation").first()).toBeVisible();
-      await visitor.goto(base + "/admin");
+      const visitorAccount = visitor.locator("#header-panel-account");
+      const visitorLogin = visitorAccount.getByRole("link", {
+        name: "Войти как владелец или редактор",
+      });
+      await expect(async () => {
+        await accountTrigger(visitor).press("ArrowDown");
+        await expect(visitorLogin).toBeFocused({ timeout: 1000 });
+      }).toPass({ timeout: 8000 });
+      await expect(visitorAccount.getByRole("switch")).toHaveCount(0);
+      await visitor.keyboard.press("Escape");
+      await expect(accountTrigger(visitor)).toBeFocused();
+      await visitor.goto(base + "/profile");
       await expect(visitor).toHaveURL(/\/admin\/login$/);
       assert.equal(
         (await visitor.request.get(base + "/admin/export")).status(),
@@ -152,17 +209,100 @@ test(
       );
 
       stage = "owner and editor auth";
+      await owner.goto(base + "/");
+      const ownerWelcome = owner.getByRole("dialog", {
+        name: "Добро пожаловать",
+      });
+      await ownerWelcome
+        .getByRole("link", { name: "Войти как владелец или редактор" })
+        .click();
+      await expect(owner).toHaveURL(base + "/admin/login");
       await signIn(owner, "owner@example.test");
-      await expect(
-        owner.getByRole("heading", { name: "Редактор RENASCENTIA" }),
-      ).toBeVisible();
+      await expect(owner).toHaveURL(base + "/");
+      await expect(ownerWelcome).toHaveCount(0);
+      await expect(pencils(owner).first()).toBeVisible();
+
+      await editor.goto(base + "/research/rp-001");
+      await (
+        await openAccount(editor)
+      )
+        .getByRole("link", { name: "Войти как владелец или редактор" })
+        .click();
       await signIn(editor, "editor@example.test");
+      await expect(editor).toHaveURL(base + "/");
+      await expect(pencils(editor).first()).toBeVisible();
+      await (
+        await openAccount(editor)
+      )
+        .getByRole("link", { name: "Мой профиль" })
+        .click();
       await expect(
-        editor.getByRole("heading", { name: "Редактор RENASCENTIA" }),
+        editor.getByRole("main").getByText("Редактор", { exact: true }),
       ).toBeVisible();
+      await (
+        await openAccount(editor)
+      )
+        .getByRole("link", { name: "Административная панель" })
+        .click();
       await expect(
         editor.getByRole("link", { name: "Редакторы", exact: true }),
       ).toHaveCount(0);
+
+      stage = "owner editing preference and session";
+      const ownerMode = (await openAccount(owner)).getByRole("switch", {
+        name: "Режим редактирования",
+      });
+      await expect(ownerMode).toBeChecked();
+      await ownerMode.click();
+      await expect(ownerMode).not.toBeChecked();
+      await expect(pencils(owner)).toHaveCount(0);
+      await owner.reload();
+      await expect(pencils(owner)).toHaveCount(0);
+      await (
+        await openAccount(owner)
+      )
+        .getByRole("link", { name: "Мой профиль" })
+        .click();
+      await expect(
+        owner.getByRole("heading", { name: "Мой профиль" }),
+      ).toBeVisible();
+      await expect(
+        owner.getByRole("main").getByText("Владелец", { exact: true }),
+      ).toBeVisible();
+      await expect(
+        owner.getByRole("main").getByText("owner@example.test"),
+      ).toBeVisible();
+      await expect(owner.getByText("Выключен", { exact: true })).toBeVisible();
+      await (
+        await openAccount(owner)
+      )
+        .getByRole("link", { name: "Административная панель" })
+        .click();
+      await expect(
+        owner.getByRole("heading", { name: "Редактор RENASCENTIA" }),
+      ).toBeVisible();
+      await expect(
+        owner
+          .getByRole("main")
+          .getByRole("button", { name: "Редактировать", exact: true })
+          .first(),
+      ).toBeVisible();
+      await (
+        await openAccount(owner)
+      )
+        .getByRole("button", { name: "Просмотр сайта" })
+        .click();
+      await expect(owner).toHaveURL(base + "/");
+      await expect(pencils(owner)).toHaveCount(0);
+      await owner.goto(base + "/research/rp-001");
+      await expect(pencils(owner)).toHaveCount(0);
+      await (
+        await openAccount(owner)
+      )
+        .getByRole("switch", { name: "Режим редактирования" })
+        .click();
+      await expect(pencils(owner).first()).toBeVisible();
+
       for (let program = 1; program <= 8; program++) {
         const panel = await openEditor(owner, "/research/rp-00" + program);
         await expect(
@@ -444,6 +584,28 @@ test(
       await expect(visitor.getByRole("heading", { level: 1 })).toHaveText(
         newTitle,
       );
+
+      stage = "sign-out and retained guest choice";
+      await owner.goto(base + "/research/rp-001");
+      await (
+        await openAccount(owner)
+      )
+        .getByRole("button", { name: "Выйти из аккаунта" })
+        .click();
+      await expect(owner).toHaveURL(base + "/");
+      await expect(ownerWelcome).toHaveCount(0);
+      await expect(pencils(owner)).toHaveCount(0);
+      assert.ok(
+        (await ownerContext.cookies()).every(
+          ({ name }) => !name.startsWith("renascentia-auth"),
+        ),
+      );
+      await owner.goto(base + "/admin");
+      await expect(owner).toHaveURL(base + "/admin/login");
+      await editor.goto(base + "/profile");
+      await expect(
+        editor.getByRole("main").getByText("Редактор", { exact: true }),
+      ).toBeVisible();
       assert.equal(errors.length, 0, errors.join("\n"));
     } catch (error) {
       throw new Error("Browser stage: " + stage + "\n" + output, {

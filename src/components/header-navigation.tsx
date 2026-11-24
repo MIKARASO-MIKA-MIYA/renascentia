@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Menu, Search, X } from "lucide-react";
+import { ChevronDown, Menu, Search, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import {
   useEffect,
@@ -12,23 +12,38 @@ import {
 
 type Dropdown = { id: string; title: string; content: ReactNode };
 const exploreId = "explore";
+const accountId = "account";
+
+function focusFirstAction(id: string) {
+  document
+    .getElementById(`header-panel-${id}`)
+    ?.querySelector<HTMLElement>("a, button")
+    ?.focus();
+}
 
 export function HeaderNavigation({
   brand,
   search,
   explore,
   dropdowns,
+  account,
 }: {
   brand: ReactNode;
   search: ReactNode;
   explore: ReactNode;
   dropdowns: readonly Dropdown[];
+  account: ReactNode;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const currentTrigger = useRef<HTMLButtonElement>(null);
+  const focusOnOpen = useRef(false);
 
   useEffect(() => {
     if (!open) return;
+    if (focusOnOpen.current) {
+      focusFirstAction(open);
+      focusOnOpen.current = false;
+    }
 
     function onPointerDown(event: PointerEvent) {
       const target = event.target;
@@ -63,15 +78,12 @@ export function HeaderNavigation({
     focusLink: boolean,
   ) {
     currentTrigger.current = trigger;
-    setOpen(id);
-    if (focusLink) {
-      requestAnimationFrame(() =>
-        document
-          .getElementById(`header-panel-${id}`)
-          ?.querySelector("a")
-          ?.focus(),
-      );
+    if (open === id) {
+      if (focusLink) focusFirstAction(id);
+      return;
     }
+    focusOnOpen.current = focusLink;
+    setOpen(id);
   }
 
   function handleArrowDown(
@@ -86,11 +98,13 @@ export function HeaderNavigation({
   function trigger(id: string, title: string) {
     const expanded = open === id;
     const isExplore = id === exploreId;
+    const isAccount = id === accountId;
 
     return (
       <button
         type="button"
         className="header-toggle cursor-pointer"
+        aria-label={isAccount ? title : undefined}
         aria-expanded={expanded}
         aria-controls={`header-panel-${id}`}
         onKeyDown={(event) => handleArrowDown(event, id)}
@@ -102,18 +116,26 @@ export function HeaderNavigation({
           }
         }}
       >
-        {isExplore && (
-          <span className="mobile-label" aria-hidden="true">
-            {expanded ? <X size={24} /> : <Menu size={24} />}
-          </span>
+        {isAccount ? (
+          <UserRound size={21} aria-hidden="true" />
+        ) : (
+          <>
+            {isExplore && (
+              <span className="mobile-label" aria-hidden="true">
+                {expanded ? <X size={24} /> : <Menu size={24} />}
+              </span>
+            )}
+            <span className={isExplore ? "desktop-label" : undefined}>
+              {title}
+            </span>
+            {isExplore && <span className="mobile-label sr-only">{title}</span>}
+            <ChevronDown
+              aria-hidden="true"
+              size={15}
+              className={`header-chevron ${isExplore ? "desktop-label" : ""}`}
+            />
+          </>
         )}
-        <span className={isExplore ? "desktop-label" : undefined}>{title}</span>
-        {isExplore && <span className="mobile-label sr-only">{title}</span>}
-        <ChevronDown
-          aria-hidden="true"
-          size={15}
-          className={`header-chevron ${isExplore ? "desktop-label" : ""}`}
-        />
       </button>
     );
   }
@@ -122,8 +144,18 @@ export function HeaderNavigation({
     <header
       className="site-header"
       onClick={(event) => {
-        if (event.target instanceof Element && event.target.closest("a"))
+        if (
+          event.target instanceof Element &&
+          event.target.closest("[data-close-account]")
+        ) {
+          currentTrigger.current?.focus();
           setOpen(null);
+        } else if (
+          event.target instanceof Element &&
+          event.target.closest("a")
+        ) {
+          setOpen(null);
+        }
       }}
     >
       <nav
@@ -145,22 +177,36 @@ export function HeaderNavigation({
         </div>
         <div className="header-brand">{brand}</div>
         <div className="header-end">
-          {dropdowns.map(({ id, title, content }) => (
-            <div key={id} className="relative">
-              {trigger(id, title)}
-              <div
-                className="nav-dropdown"
-                id={`header-panel-${id}`}
-                hidden={open !== id}
-              >
-                {content}
+          <div className="header-dropdowns">
+            {dropdowns.map(({ id, title, content }) => (
+              <div key={id} className="relative">
+                {trigger(id, title)}
+                <div
+                  className="nav-dropdown"
+                  id={`header-panel-${id}`}
+                  hidden={open !== id}
+                >
+                  {content}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+          <Link
+            href="/search"
+            className="header-search-link"
+            aria-label="Поиск"
+          >
+            <Search size={23} aria-hidden="true" />
+          </Link>
+          {trigger(accountId, "Аккаунт")}
+          <div
+            id="header-panel-account"
+            className="nav-dropdown header-account-panel"
+            hidden={open !== accountId}
+          >
+            {account}
+          </div>
         </div>
-        <Link href="/search" className="header-search-link" aria-label="Поиск">
-          <Search size={23} aria-hidden="true" />
-        </Link>
       </nav>
     </header>
   );

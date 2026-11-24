@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { cache } from "react";
+import { editingModeCookie } from "../account-preferences";
 import { cookieName, supabaseConfig } from "./config";
 
 export const sessionClient = cache(async () => {
@@ -77,9 +78,11 @@ export const getEditor = cache(async () => {
   if (!data || (data.role !== "owner" && data.role !== "editor")) return null;
   return {
     id: user.id,
+    email: user.email,
     name: data.display_name as string,
     owner: data.role === "owner",
     publish: data.role === "owner" || data.can_publish === true,
+    editing: store.get(editingModeCookie)?.value !== "view",
     client,
   };
 });

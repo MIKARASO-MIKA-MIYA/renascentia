@@ -1,13 +1,14 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { AdminForm } from "@/components/cms/admin-form";
 import { getEditor, writerConfigured } from "@/lib/cms/clients";
 import { signIn } from "../actions";
 
 export default async function AdminLogin() {
-  if (await getEditor()) redirect("/admin");
+  if (await getEditor()) redirect("/");
   return (
     <section>
-      <h1>Вход для редакторов</h1>
+      <h1>Вход для владельца и редакторов</h1>
       {writerConfigured() ? (
         <AdminForm action={signIn} label="Войти">
           <label>
@@ -37,6 +38,9 @@ export default async function AdminLogin() {
           проекта.
         </p>
       )}
+      <Link href="/" className="text-link mt-5 inline-block">
+        На главную
+      </Link>
     </section>
   );
 }

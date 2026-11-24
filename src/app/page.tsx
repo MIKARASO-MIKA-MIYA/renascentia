@@ -7,9 +7,11 @@ import { HeroCarousel } from "@/components/home/hero-carousel";
 import { ImageGallery } from "@/components/home/image-gallery";
 import { ResearchPrograms } from "@/components/home/research-programs";
 import { TopicGrid } from "@/components/home/topic-grid";
+import { WelcomeDialog } from "@/components/home/welcome-dialog";
 import { CmsRegion, cmsView } from "@/components/cms/region";
 import { site } from "@/config/site";
 import { images } from "@/content/images";
+import { getEditor } from "@/lib/cms/clients";
 import { assetWithFields } from "@/lib/cms/registry";
 import { videoSource } from "@/lib/cms/schema";
 import { cmsPageMetadata } from "@/lib/seo";
@@ -23,12 +25,17 @@ export const generateMetadata = () =>
   });
 
 export default async function HomePage() {
-  const [{ fields: hero }, { fields: pictureFields }, { fields: videoFields }] =
-    await Promise.all([
-      cmsView("/~hero"),
-      cmsView("/sources~images"),
-      cmsView("/~video"),
-    ]);
+  const [
+    { fields: hero },
+    { fields: pictureFields },
+    { fields: videoFields },
+    editor,
+  ] = await Promise.all([
+    cmsView("/~hero"),
+    cmsView("/sources~images"),
+    cmsView("/~video"),
+    getEditor(),
+  ]);
   const [firstSlide, ...remainingSlides] = Array.from(
     { length: 6 },
     (_, index) => ({
@@ -47,6 +54,7 @@ export default async function HomePage() {
 
   return (
     <>
+      {!editor && <WelcomeDialog />}
       <AnnouncementBar />
       <CmsRegion name="/~hero">
         <HeroCarousel slides={[firstSlide, ...remainingSlides]} />

@@ -1,0 +1,20 @@
+ CHANGELOG.md                           |   7 [32m++[m
+ README.md                              |   8 [32m+[m[31m-[m
+ package-lock.json                      |   4 [32m+[m[31m-[m
+ package.json                           |   2 [32m+[m[31m-[m
+ src/app/admin/actions.ts               |  57 [32m++++++++[m[31m--[m
+ src/app/admin/login/page.tsx           |   8 [32m+[m[31m-[m
+ src/app/header.css                     |  72 [32m++++++++++++[m[31m-[m
+ src/app/page.tsx                       |  20 [32m++[m[31m--[m
+ src/app/profile/page.tsx               |  46 [32m++++++++[m
+ src/components/account-menu.tsx        |  50 [32m+++++++++[m
+ src/components/cms/region.tsx          |   6 [32m+[m[31m-[m
+ src/components/header-navigation.tsx   | 116 [32m+++++++++++++[m[31m-------[m
+ src/components/home/welcome-dialog.css | 102 [32m++++++++++++++++++[m
+ src/components/home/welcome-dialog.tsx |  82 [32m+++++++++++++++[m
+ src/components/site-header.tsx         |  12 [32m++[m[31m-[m
+ src/config/site.ts                     |   2 [32m+[m[31m-[m
+ src/lib/account-preferences.ts         |   5 [32m+[m
+ src/lib/cms/clients.ts                 |   3 [32m+[m
+ tests/cms-browser.test.ts              | 186 [32m++++++++++++++++++++++++++++++[m[31m---[m
+ 19 files changed, 715 insertions(+), 73 deletions(-)

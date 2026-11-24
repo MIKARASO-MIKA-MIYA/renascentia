@@ -1,13 +1,16 @@
 import { sections } from "@/config/site";
 import { articles } from "@/content/articles";
+import { getEditor } from "@/lib/cms/clients";
 import { materialHref } from "@/lib/materials";
+import { AccountMenu } from "./account-menu";
 import { Brand } from "./brand";
 import { ExploreMegaMenu } from "./explore-mega-menu";
 import { HeaderNavigation } from "./header-navigation";
 import { NavigationDropdown } from "./navigation-dropdown";
 import { SearchBar } from "./search-bar";
 
-export function SiteHeader() {
+export async function SiteHeader() {
+  const editor = await getEditor();
   const dropdowns = [
     {
       id: "publications",
@@ -53,10 +56,17 @@ export function SiteHeader() {
 
   return (
     <HeaderNavigation
+      key={editor ? "editor" : "visitor"}
       brand={<Brand />}
       search={<SearchBar compact />}
       explore={<ExploreMegaMenu />}
       dropdowns={dropdowns}
+      account={
+        <AccountMenu
+          signedIn={Boolean(editor)}
+          editing={editor?.editing ?? false}
+        />
+      }
     />
   );
 }

@@ -1,0 +1,102 @@
+.welcome-dialog {
+  --focus-color: var(--color-masthead-focus);
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  inline-size: min(42rem, calc(100% - 1.5rem));
+  max-block-size: calc(100dvh - 1.5rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #37302a;
+  border-radius: 0.65rem;
+  background: #090909;
+  color: #f8f7f5;
+  padding: clamp(1.25rem, 5vw, 2.75rem);
+  text-align: center;
+  box-shadow: 0 1.5rem 6rem #000a;
+}
+
+.welcome-dialog::backdrop {
+  background: #080808db;
+}
+
+body:has(.welcome-dialog[open]) {
+  overflow: hidden;
+}
+
+.welcome-identity {
+  display: grid;
+  justify-items: center;
+  gap: 0.65rem;
+  padding-block-end: clamp(1.25rem, 4vw, 1.8rem);
+  border-bottom: 1px solid #383230;
+}
+
+.welcome-emblem {
+  inline-size: clamp(3.5rem, 11vw, 5rem);
+  block-size: auto;
+}
+
+.welcome-wordmark {
+  padding-inline-start: 0.21em;
+  font-size: clamp(1.05rem, 4.6vw, 1.7rem);
+  font-weight: 800;
+  letter-spacing: 0.21em;
+}
+
+.welcome-subtitle {
+  color: var(--color-gold);
+  font-size: 0.95rem;
+}
+
+.welcome-content {
+  padding-block-start: clamp(1.25rem, 4vw, 1.8rem);
+}
+
+.welcome-content h2 {
+  font-size: clamp(1.2rem, 3.5vw, 1.5rem);
+  font-weight: 800;
+}
+
+.welcome-content p {
+  margin: 0.7rem auto 0;
+  max-inline-size: 36ch;
+  color: #d2ccc4;
+  font-size: 0.94rem;
+  line-height: 1.55;
+}
+
+.welcome-actions {
+  display: grid;
+  gap: 0.7rem;
+  margin-block-start: 1.4rem;
+}
+
+.welcome-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-block-size: 2.85rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #625b53;
+  border-radius: 999px;
+  color: #f8f7f5;
+  font-size: 0.87rem;
+  font-weight: 780;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.welcome-action svg {
+  flex: none;
+}
+
+.welcome-action:hover {
+  background: #241f19;
+}
+
+.welcome-guest {
+  border-color: #a88754;
+  color: #f1d6ab;
+}

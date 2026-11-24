@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath, updateTag } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import {
@@ -9,7 +10,12 @@ import {
   writerClient,
   writerConfigured,
 } from "@/lib/cms/clients";
-import { publishedTag } from "@/lib/cms/config";
+import { cookieName, publishedTag } from "@/lib/cms/config";
+import {
+  editingModeCookie,
+  visitChoiceCookie,
+  visitChoiceMaxAge,
+} from "@/lib/account-preferences";
 import { seedByKey, validNativeFields } from "@/lib/cms/registry";
 import {
   documentSchema,
@@ -91,17 +97,56 @@ export async function signIn(
     .select("role")
     .eq("user_id", data.user.id)
     .maybeSingle();
-  if (!profile) {
+  if (profile?.role !== "owner" && profile?.role !== "editor") {
     await client.auth.signOut({ scope: "local" });
     return failure("Этому аккаунту не назначена роль редактора.");
   }
-  redirect("/admin");
+  const store = await cookies();
+  store.delete(editingModeCookie);
+  store.set(visitChoiceCookie, "editor", {
+    path: "/",
+    sameSite: "lax",
+    maxAge: visitChoiceMaxAge,
+  });
+  redirect("/");
 }
 
 export async function signOut() {
-  const client = await sessionClient();
-  await client?.auth.signOut({ scope: "local" });
-  redirect("/admin/login");
+  try {
+    const client = await sessionClient();
+    await client?.auth.signOut({ scope: "local" });
+  } catch {
+    console.error("Could not revoke the remote session during sign-out");
+  }
+  const store = await cookies();
+  for (const { name } of store.getAll()) {
+    if (name === cookieName || name.startsWith(cookieName + "."))
+      store.delete(name);
+  }
+  store.delete(editingModeCookie);
+  store.set(visitChoiceCookie, "guest", {
+    path: "/",
+    sameSite: "lax",
+    maxAge: visitChoiceMaxAge,
+  });
+  redirect("/");
+}
+
+export async function setEditingMode(mode: "edit" | "view") {
+  if ((mode !== "edit" && mode !== "view") || !(await getEditor())) return;
+  const store = await cookies();
+  if (mode === "edit") store.delete(editingModeCookie);
+  else
+    store.set(editingModeCookie, "view", {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+    });
+}
+
+export async function viewSite() {
+  await setEditingMode("view");
+  redirect("/");
 }
 
 export type EditState = {
