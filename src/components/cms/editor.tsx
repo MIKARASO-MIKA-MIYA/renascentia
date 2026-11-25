@@ -31,10 +31,7 @@ import {
   type VersionInfo,
 } from "@/app/admin/actions";
 import type { Field } from "@/lib/cms/registry";
-import {
-  normalizeDocument,
-  type DocumentNotice,
-} from "@/lib/cms/normalize-document";
+import { normalizeDocument } from "@/lib/cms/normalize-document";
 import {
   blockLabels,
   exceedsDocumentTransport,
@@ -318,11 +315,11 @@ export default function ContentEditor({
 }: EditorProps) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
-  const noticesPanel = useRef<HTMLDetailsElement>(null);
   const [body, setBody] = useState(initial.body);
   const [saved, setSaved] = useState(initial.body);
   const [revision, setRevision] = useState(initial.revision);
   const [published, setPublished] = useState(initial.published);
+  const [autoPublishPaused, setAutoPublishPaused] = useState(false);
   const [activeBlock, setActiveBlock] = useState<string | null>(null);
   const [editorKey, setEditorKey] = useState(0);
   const [addAt, setAddAt] = useState<number | null>(null);
@@ -333,10 +330,9 @@ export default function ContentEditor({
   const [pending, setPending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState(
-    initial.revision ? "Черновик загружен" : "Начальная версия",
+    initial.revision ? "Версия загружена" : "Начальная версия",
   );
   const [error, setError] = useState("");
-  const [notices, setNotices] = useState<DocumentNotice[]>([]);
   const [conflict, setConflict] = useState(false);
   const [undoStack, setUndoStack] = useState<CmsDocument[]>([]);
   const [redoStack, setRedoStack] = useState<CmsDocument[]>([]);
@@ -347,6 +343,8 @@ export default function ContentEditor({
   }>();
   const [compare, setCompare] = useState(false);
   const dirty = body !== saved;
+  const autosaveIntent = canPublish && !autoPublishPaused ? "publish" : "draft";
+  const canAutosave = panel === "edit" && !uploading;
   const hasRequest = useRef(false);
   const lastChange = useRef<{ group: string; time: number } | undefined>(
     undefined,
@@ -471,8 +469,7 @@ export default function ContentEditor({
           setStatus("Сохранение остановлено");
           return;
         }
-        setRevision(result.data.revision);
-        setNotices(result.data.notices);
+        setRevision(result.data);
         if (intent === "restore" && selected) {
           replaceBody(selected.body);
           setSaved(selected.body);
@@ -481,6 +478,7 @@ export default function ContentEditor({
         } else if (intent !== "unpublish") setSaved(snapshot);
         if (intent === "publish" || intent === "unpublish") {
           setPublished(intent === "publish");
+          setAutoPublishPaused(intent === "unpublish");
           router.refresh();
         }
         setStatus(
@@ -556,10 +554,19 @@ export default function ContentEditor({
     };
   }, []);
   useEffect(() => {
-    if (!dirty || error || pending || conflict || panel !== "edit") return;
-    const timer = window.setTimeout(() => void save("draft"), 1800);
+    if (!canAutosave || !dirty || error || pending || conflict) return;
+    const timer = window.setTimeout(() => void save(autosaveIntent), 1800);
     return () => window.clearTimeout(timer);
-  }, [body, dirty, error, pending, conflict, panel, save]);
+  }, [
+    autosaveIntent,
+    body,
+    canAutosave,
+    dirty,
+    error,
+    pending,
+    conflict,
+    save,
+  ]);
   useEffect(() => {
     if (!dirty) return;
     function onUnload(event: BeforeUnloadEvent) {
@@ -773,32 +780,15 @@ export default function ContentEditor({
             </button>
           )}
         </div>
-        <div className="cms-save-status">
-          <p role="status">
-            {uploading
-              ? "Загрузка изображения…"
-              : dirty && !pending && !error
-                ? "Есть несохранённые изменения"
-                : status}
-          </p>
-          {!!notices.length && (
-            <button
-              type="button"
-              className="cms-notice-link"
-              onClick={() => {
-                if (noticesPanel.current) {
-                  noticesPanel.current.open = true;
-                  noticesPanel.current.scrollIntoView({ block: "nearest" });
-                  noticesPanel.current
-                    .querySelector("summary")
-                    ?.focus({ preventScroll: true });
-                }
-              }}
-            >
-              Примечания к сохранению ({notices.length})
-            </button>
-          )}
-        </div>
+        <p role="status">
+          {uploading
+            ? "Загрузка изображения…"
+            : dirty && !pending && !error
+              ? canAutosave && autosaveIntent === "publish"
+                ? "Ожидает автопубликации"
+                : "Есть несохранённые изменения"
+              : status}
+        </p>
         {error && (
           <div className="cms-save-error">
             <p className="cms-error" role="alert">
@@ -1208,22 +1198,6 @@ export default function ContentEditor({
               </article>
             )}
           </div>
-        )}
-        {!!notices.length && (
-          <details ref={noticesPanel} className="cms-notices">
-            <summary>Исправления и предупреждения</summary>
-            <ul>
-              {notices.map(({ level, field, message }) => (
-                <li key={level + field + message}>
-                  <strong>
-                    {level === "repair" ? "Исправлено" : "Предупреждение"} ·{" "}
-                    {field}
-                  </strong>
-                  <span>{message}</span>
-                </li>
-              ))}
-            </ul>
-          </details>
         )}
       </div>
     </dialog>

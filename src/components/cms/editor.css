@@ -78,41 +78,11 @@
   padding-inline: max(0.7rem, calc((100vw - 78rem) / 2));
 }
 
-.cms-save-status,
 .cms-save-error {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 0.45rem;
-}
-
-.cms-dialog .cms-notice-link {
-  min-block-size: auto;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  text-decoration: underline;
-  text-underline-offset: 0.15em;
-}
-
-.cms-notices {
-  border-block-start: 1px solid var(--cms-border);
-  padding-block: 0.6rem;
-}
-
-.cms-notices summary {
-  cursor: pointer;
-  font-weight: 750;
-}
-
-.cms-notices ul {
-  display: grid;
-  gap: 0.6rem;
-  margin-block-start: 0.65rem;
-}
-
-.cms-notices span {
-  display: block;
 }
 
 .cms-preview-page {

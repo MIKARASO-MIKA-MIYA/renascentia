@@ -29,19 +29,9 @@ import {
   type RichNode,
 } from "./schema";
 
-export type DocumentNotice = {
-  level: "repair" | "warning";
-  field: string;
-  message: string;
-};
 type NormalizedDocument =
-  | { ok: true; body: CmsDocument; notices: DocumentNotice[] }
+  | { ok: true; body: CmsDocument }
   | { ok: false; field: string; message: string };
-type Notice = (
-  level: DocumentNotice["level"],
-  field: string,
-  message: string,
-) => void;
 type RecordValue = Record<string, unknown>;
 
 class InvalidContent extends Error {
@@ -95,17 +85,14 @@ const blockTypes = new Set<string>(Object.keys(blockLabels));
 const allowedAnchor = /^[A-Za-z][A-Za-z0-9_-]{0,79}$/;
 const allowedId = /^[A-Za-z0-9_-]{1,80}$/;
 
-function address(value: unknown, field: string, notice: Notice) {
+function address(value: unknown, field: string) {
   const raw = text(value);
   if (unsafeAddress(raw))
     throw new InvalidContent(
       field,
       "адрес использует опасный протокол или недопустимые учётные данные",
     );
-  const safe = safeAddress(raw);
-  if (safe && safe !== raw)
-    notice("repair", field, "Адрес приведён к допустимому формату.");
-  return safe;
+  return safeAddress(raw);
 }
 
 const styleFields = {
@@ -116,11 +103,7 @@ const styleFields = {
   lineHeight: safeLineHeight,
 };
 
-function normalizeMarks(
-  raw: unknown,
-  field: string,
-  notice: Notice,
-): RichNode["marks"] {
+function normalizeMarks(raw: unknown, field: string): RichNode["marks"] {
   if (!Array.isArray(raw)) return undefined;
   const marks = new Map<string, NonNullable<RichNode["marks"]>[number]>();
   for (const item of raw) {
@@ -130,7 +113,7 @@ function normalizeMarks(
       marks.set(kind, { type: kind } as NonNullable<RichNode["marks"]>[number]);
     } else if (kind === "link") {
       const attrs = record(mark?.attrs) ?? {};
-      const href = address(attrs.href, field + " · Адрес ссылки", notice);
+      const href = address(attrs.href, field + " · Адрес ссылки");
       if (href) {
         const target =
           attrs.target === "_blank" || attrs.target === "_self"
@@ -146,63 +129,29 @@ function normalizeMarks(
               : {}),
           },
         });
-      } else
-        notice(
-          "warning",
-          field + " · Адрес ссылки",
-          "Недопустимый адрес снят со ссылки. Текст оставлен.",
-        );
+      }
     } else if (kind === "textStyle") {
       const attrs = record(mark?.attrs) ?? {};
       const style = Object.fromEntries(
         Object.entries(styleFields).flatMap(([key, normalize]) => {
-          const original = attrs[key];
-          const value = normalize(original);
-          if (original != null && value !== original)
-            notice(
-              value ? "repair" : "warning",
-              field + " · Оформление текста",
-              value
-                ? "Приведены к допустимому виду цвет, шрифт или интервал."
-                : "Неподдерживаемый стиль снят. Текст оставлен.",
-            );
+          const value = normalize(attrs[key]);
           return value ? [[key, value]] : [];
         }),
       );
       if (Object.keys(style).length)
         marks.set(kind, { type: "textStyle", attrs: style });
-    } else
-      notice(
-        "repair",
-        field + " · Оформление текста",
-        "Неподдерживаемый стиль снят.",
-      );
+    }
   }
   return marks.size ? [...marks.values()] : undefined;
 }
 
-function normalizeAttrs(
-  type: NodeName,
-  raw: unknown,
-  field: string,
-  notice: Notice,
-) {
+function normalizeAttrs(type: NodeName, raw: unknown) {
   const attrs = record(raw) ?? {};
   switch (type) {
     case "heading":
     case "paragraph": {
       const alignment = safeAlignment(attrs.textAlign);
       const indent = range(attrs.indent, 0, 0, 4, true);
-      if (
-        (attrs.textAlign != null && attrs.textAlign !== alignment) ||
-        (attrs.indent != null && attrs.indent !== indent)
-      ) {
-        notice(
-          "repair",
-          field + " · Абзац",
-          "Исправлены выравнивание или отступ.",
-        );
-      }
       return {
         ...(type === "heading"
           ? { level: range(attrs.level, 2, 1, 6, true) }
@@ -232,20 +181,6 @@ function normalizeAttrs(
         : null;
       const backgroundColor = safeColor(attrs.backgroundColor);
       const align = safeAlignment(attrs.align);
-      if (
-        (attrs.backgroundColor != null &&
-          backgroundColor !== attrs.backgroundColor) ||
-        (attrs.colspan != null && attrs.colspan !== colspan) ||
-        (attrs.rowspan != null && attrs.rowspan !== rowspan) ||
-        (attrs.colwidth != null &&
-          JSON.stringify(colwidth) !== JSON.stringify(attrs.colwidth))
-      ) {
-        notice(
-          "repair",
-          field + " · Ячейка таблицы",
-          "Нормализованы размеры или оформление ячейки.",
-        );
-      }
       return {
         colspan,
         rowspan,
@@ -269,7 +204,7 @@ function normalizeAttrs(
   }
 }
 
-function normalizeRich(raw: unknown, field: string, notice: Notice): RichNode {
+function normalizeRich(raw: unknown, field: string): RichNode {
   function visit(value: unknown, path: number[]): RichNode | undefined {
     const location = path.length
       ? field + " · Текст, узел " + path.join(".")
@@ -294,7 +229,7 @@ function normalizeRich(raw: unknown, field: string, notice: Notice): RichNode {
       if (typeof node.text !== "string" || node.content !== undefined)
         throw new InvalidContent(location, "повреждён текстовый узел");
       const value = text(node.text);
-      const marks = normalizeMarks(node.marks, field, notice);
+      const marks = normalizeMarks(node.marks, field);
       return value ? { type, text: value, ...(marks && { marks }) } : undefined;
     }
     if (node.text !== undefined)
@@ -327,7 +262,7 @@ function normalizeRich(raw: unknown, field: string, notice: Notice): RichNode {
       });
     }
     if (type === "codeBlock") for (const child of content) delete child.marks;
-    const attrs = normalizeAttrs(type, node.attrs, field, notice);
+    const attrs = normalizeAttrs(type, node.attrs);
     return {
       type,
       ...(Object.keys(attrs).length ? { attrs } : {}),
@@ -343,60 +278,16 @@ function normalizeRich(raw: unknown, field: string, notice: Notice): RichNode {
   return result;
 }
 
-function mediaWidth(
-  value: unknown,
-  min: number,
-  field: string,
-  notice: Notice,
-) {
-  const width = range(value, 100, min, 100);
-  if (value != null && width !== value)
-    notice(
-      "repair",
-      field + " · Ширина",
-      "Размер приведён к ширине контейнера.",
-    );
-  return width;
-}
-
 function mediaAlign(value: unknown): CmsImage["align"] {
   const result = safeAlignment(value);
   return result === "left" || result === "right" ? result : "center";
 }
 
-function normalizeImage(
-  raw: unknown,
-  field: string,
-  notice: Notice,
-): CmsImage | undefined {
+function normalizeImage(raw: unknown, field: string): CmsImage | undefined {
   const image = record(raw) ?? {};
-  const url = address(image.url, field + " · Адрес изображения", notice);
-  if (!url || !isImageUrl(url)) {
-    notice(
-      "warning",
-      field + " · Адрес изображения",
-      "Изображение пропущено. Нужна HTTPS-ссылка или запись медиатеки.",
-    );
-    return;
-  }
-  const source = address(
-    image.source,
-    field + " · Источник изображения",
-    notice,
-  );
-  if (image.source && (!source || !isHttps(source)))
-    notice(
-      "warning",
-      field + " · Источник изображения",
-      "В источнике ожидается HTTPS-ссылка. Поле оставлено пустым.",
-    );
-  const alt = text(image.alt);
-  if (!alt.trim())
-    notice(
-      "warning",
-      field + " · Альтернативный текст",
-      "У изображения нет альтернативного текста.",
-    );
+  const url = address(image.url, field + " · Адрес изображения");
+  if (!url || !isImageUrl(url)) return;
+  const source = address(image.source, field + " · Источник изображения");
   const maxWidth =
     image.maxWidth == null || image.maxWidth === ""
       ? null
@@ -405,24 +296,14 @@ function normalizeImage(
     image.height == null || image.height === ""
       ? null
       : range(image.height, 1800, 50, 1800, true);
-  if (
-    (maxWidth !== null && maxWidth !== image.maxWidth) ||
-    (height !== null && height !== image.height)
-  ) {
-    notice(
-      "repair",
-      field + " · Габариты изображения",
-      "Слишком большой или некорректный размер приведён к допустимому.",
-    );
-  }
   return {
     url,
-    alt,
+    alt: text(image.alt),
     caption: text(image.caption),
     author: text(image.author),
     source: source && isHttps(source) ? source : "",
     license: text(image.license),
-    width: mediaWidth(image.width, 10, field, notice),
+    width: range(image.width, 100, 10, 100),
     ...(maxWidth !== null && { maxWidth }),
     ...(height !== null && { height }),
     align: mediaAlign(image.align),
@@ -430,34 +311,19 @@ function normalizeImage(
   };
 }
 
-function normalizeVideo(
-  raw: unknown,
-  field: string,
-  notice: Notice,
-): CmsVideo | undefined {
+function normalizeVideo(raw: unknown, field: string): CmsVideo | undefined {
   const video = record(raw) ?? {};
-  const url = address(video.url, field + " · Адрес видео", notice);
-  if (!url || !videoSource(url)) {
-    notice(
-      "warning",
-      field + " · Адрес видео",
-      "Видео пропущено. Используйте YouTube или прямую HTTPS-ссылку на MP4, WebM или OGV.",
-    );
-    return;
-  }
+  const url = address(video.url, field + " · Адрес видео");
+  if (!url || !videoSource(url)) return;
   return {
     url,
     caption: text(video.caption),
-    width: mediaWidth(video.width, 20, field, notice),
+    width: range(video.width, 100, 20, 100),
     align: mediaAlign(video.align),
   };
 }
 
-function normalizeFields(
-  raw: unknown,
-  definitions: Record<string, Field>,
-  notice: Notice,
-) {
+function normalizeFields(raw: unknown, definitions: Record<string, Field>) {
   const input = record(raw) ?? {};
   return Object.fromEntries(
     Object.entries(definitions).map(([name, descriptor]) => {
@@ -468,29 +334,18 @@ function normalizeFields(
         return [name, descriptor.optional ? "" : descriptor.value];
       const kind = descriptor.type;
       if (kind === "image" || kind === "link" || kind === "video") {
-        const url = address(value, label, notice);
+        const url = address(value, label);
         const valid =
           url &&
           (kind === "link" ||
             (kind === "image"
               ? isImageUrl(url)
               : videoSource(url)?.type === "youtube"));
-        if (!valid)
-          notice(
-            "warning",
-            label,
-            "Этот адрес не подходит. Использовано исходное значение.",
-          );
         value = valid ? url : descriptor.value;
       } else if (
         kind === "article" &&
         !newPathSchema.safeParse("/publications/" + value).success
       ) {
-        notice(
-          "warning",
-          label,
-          "Адрес публикации не распознан. Восстановлено исходное значение.",
-        );
         value = descriptor.value;
       }
       return [name, value];
@@ -520,11 +375,6 @@ export function normalizeDocument(
   raw: unknown,
   options: { title?: string; fields?: Record<string, Field> } = {},
 ): NormalizedDocument {
-  const notices = new Map<string, DocumentNotice>();
-  const notice: Notice = (level, field, message) => {
-    if (notices.size < 100)
-      notices.set(level + field + message, { level, field, message });
-  };
   try {
     const input = record(raw);
     if (!input || input.format !== 1)
@@ -535,12 +385,6 @@ export function normalizeDocument(
         "в документе отсутствует список блоков",
       );
     const title = text(input.title).trim() || options.title || "Без названия";
-    if (!text(input.title).trim())
-      notice(
-        "warning",
-        "Заголовок материала",
-        "Использован исходный или стандартный заголовок.",
-      );
     const ids = new Set<string>();
     const anchors = new Set<string>();
     const reservedIds = new Set(
@@ -568,13 +412,7 @@ export function normalizeDocument(
       const hasId = allowedId.test(suppliedId);
       const base = hasId ? suppliedId : "block-" + (index + 1);
       const id = unique(base, ids, reservedIds, hasId);
-      if (id !== suppliedId)
-        notice(
-          "repair",
-          label + " · Идентификатор",
-          "Присвоен уникальный идентификатор.",
-        );
-      const doc = normalizeRich(block.doc, label, notice);
+      const doc = normalizeRich(block.doc, label);
       const suppliedAnchor = text(block.anchor).trim();
       const validAnchor = allowedAnchor.test(suppliedAnchor);
       const generateAnchor =
@@ -586,12 +424,6 @@ export function normalizeDocument(
           : anchorSlug(suppliedAnchor || plainText(doc)) ||
             "blok-" + (index + 1);
         anchor = unique(base, anchors, reservedAnchors, validAnchor);
-        if (anchor !== suppliedAnchor)
-          notice(
-            "repair",
-            label + " · Якорь",
-            "Назначен уникальный якорь #" + anchor + ".",
-          );
       }
       const images =
         Array.isArray(block.images) &&
@@ -603,14 +435,13 @@ export function normalizeDocument(
               const normalized = normalizeImage(
                 image,
                 label + " · Изображение " + (index + 1),
-                notice,
               );
               return normalized ? [normalized] : [];
             })
           : undefined;
       const video =
         blockType === "video" && block.video != null
-          ? normalizeVideo(block.video, label, notice)
+          ? normalizeVideo(block.video, label)
           : undefined;
       return {
         id,
@@ -625,7 +456,7 @@ export function normalizeDocument(
       format: 1,
       title,
       description: text(input.description),
-      fields: normalizeFields(input.fields, options.fields ?? {}, notice),
+      fields: normalizeFields(input.fields, options.fields ?? {}),
       blocks,
     });
     if (!body.success) {
@@ -647,7 +478,7 @@ export function normalizeDocument(
         "содержимое не соответствует формату хранения",
       );
     }
-    return { ok: true, body: body.data, notices: [...notices.values()] };
+    return { ok: true, body: body.data };
   } catch (error) {
     if (error instanceof InvalidContent)
       return { ok: false, field: error.field, message: error.message };

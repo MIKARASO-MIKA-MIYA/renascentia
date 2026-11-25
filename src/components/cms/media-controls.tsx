@@ -52,6 +52,7 @@ export function MediaPicker({
   const [page, setPage] = useState(0);
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
+  const [libraryError, setLibraryError] = useState("");
   const [uploading, setUploading] = useState(false);
   useEffect(() => {
     let active = true;
@@ -61,11 +62,11 @@ export function MediaPicker({
           if (!active) return;
           if (result.ok) {
             setItems(result.data);
-            setError("");
-          } else setError(result.message);
+            setLibraryError("");
+          } else setLibraryError(result.message);
         })
         .catch(() => {
-          if (active) setError("Не удалось открыть медиатеку.");
+          if (active) setLibraryError("Не удалось открыть медиатеку.");
         });
     }, 250);
     return () => {
@@ -87,6 +88,7 @@ export function MediaPicker({
               const file = event.target.files?.[0];
               if (!file) return;
               setUploading(true);
+              setError("");
               try {
                 const result = await uploadFile(file);
                 if (result.ok) onPick(imageFromItem(result.data));
@@ -178,7 +180,7 @@ export function MediaPicker({
           }}
         />
       </label>
-      {error && <p role="alert">{error}</p>}
+      {(error || libraryError) && <p role="alert">{error || libraryError}</p>}
       <ul className="cms-library-grid">
         {items.map((item) => (
           <li key={item.id}>

@@ -180,7 +180,7 @@ test("normalization repairs pasted styles, repeated anchors and oversized media 
   };
   const result = normalizeDocument(original);
   assert.ok(result.ok);
-  const { body, notices } = result;
+  const { body } = result;
   assert.equal(body.title, "Без названия");
   assert.equal(body.blocks[0].anchor, "odinakovyy-razdel");
   assert.equal(body.blocks[1].anchor, "odinakovyy-razdel-2");
@@ -203,18 +203,8 @@ test("normalization repairs pasted styles, repeated anchors and oversized media 
   });
   assert.equal(body.blocks[3].images?.[0]?.width, 100);
   assert.equal(body.blocks[3].images?.[0]?.height, 1800);
+  assert.equal(body.blocks[3].images?.[0]?.alt, "");
   assert.equal(body.blocks[4].video, undefined);
-  assert.ok(
-    notices.some(
-      ({ level, field }) =>
-        level === "warning" && field.includes("Альтернативный текст"),
-    ),
-  );
-  assert.ok(
-    notices.some(
-      ({ level, field }) => level === "repair" && field.includes("Якорь"),
-    ),
-  );
   assert.ok(documentSchema.safeParse(body).success);
 });
 

@@ -17,10 +17,7 @@ import {
   visitChoiceMaxAge,
 } from "@/lib/account-preferences";
 import { seedByKey } from "@/lib/cms/registry";
-import {
-  normalizeDocument,
-  type DocumentNotice,
-} from "@/lib/cms/normalize-document";
+import { normalizeDocument } from "@/lib/cms/normalize-document";
 import {
   documentSchema,
   isHttps,
@@ -224,7 +221,7 @@ function cmsMediaIds(body: CmsDocument) {
 export async function writeEntry(
   input: unknown,
   content: FormData,
-): Promise<CmsResult<{ revision: number; notices: DocumentNotice[] }>> {
+): Promise<CmsResult<number>> {
   const parsed = request.safeParse(input);
   if (!parsed.success) return failure("Некорректный запрос сохранения.");
   const { key, intent, versionId } = parsed.data;
@@ -239,7 +236,6 @@ export async function writeEntry(
   if (!writer) return failure(noStorage);
   const seed = seedByKey.get(key);
   let body: CmsDocument | undefined;
-  let notices: DocumentNotice[] = [];
   if (intent === "restore") {
     if (!versionId) return failure("Укажите версию для восстановления.");
   } else if (intent === "unpublish") {
@@ -267,7 +263,6 @@ export async function writeEntry(
     });
     if (!result.ok) return failure(result.field + " · " + result.message + ".");
     body = result.body;
-    notices = result.notices;
   }
   if (seed && parsed.data.revision === 0) {
     const { error } = await writer.rpc("cms_seed", {
@@ -289,7 +284,7 @@ export async function writeEntry(
   if (error) return errorResult(error);
   if (intent === "publish" || intent === "unpublish") invalidate(key);
   else revalidatePath("/admin");
-  return success({ revision: data as number, notices });
+  return success(data as number);
 }
 
 export async function createEntry(

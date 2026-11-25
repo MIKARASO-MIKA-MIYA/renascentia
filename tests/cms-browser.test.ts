@@ -57,6 +57,21 @@ async function addBlock(dialog: Locator, type: string) {
   await dialog.getByRole("button", { name: type, exact: true }).click();
 }
 
+async function pasteHtml(target: Locator, html: string) {
+  await target.evaluate((element, source) => {
+    (element as HTMLElement).focus();
+    const clipboard = new DataTransfer();
+    clipboard.setData("text/html", source);
+    element.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: clipboard,
+      }),
+    );
+  }, html);
+}
+
 test(
   "browser flow with a local PostgreSQL fixture and Supabase-compatible HTTP",
   { timeout: 250_000 },
@@ -385,7 +400,6 @@ test(
         .locator(".cms-resize-image img")
         .getAttribute("src");
       assert.ok(imageUrl?.startsWith("/cms/media/"));
-      assert.equal((await visitor.request.get(base + imageUrl)).status(), 404);
       await panel.getByRole("button", { name: "50%", exact: true }).click();
       await expect(panel.getByLabel("Ширина, %", { exact: true })).toHaveValue(
         "50",
@@ -406,14 +420,11 @@ test(
       );
       await expect(panel.locator("iframe")).toHaveClass(/cms-short/);
 
-      stage = "autosave, preview, conflict and publication";
+      stage = "automatic publication, preview and conflict";
       try {
-        await expect(panel.getByRole("status")).toHaveText(
-          "Черновик сохранён",
-          {
-            timeout: 8_000,
-          },
-        );
+        await expect(panel.getByRole("status")).toHaveText("Опубликовано", {
+          timeout: 8_000,
+        });
       } catch (error) {
         throw new Error(
           "Autosave status: " +
@@ -424,7 +435,7 @@ test(
       await visitor.goto(
         base + path + "?cms-preview=" + encodeURIComponent(path),
       );
-      await expect(visitor.getByRole("heading", { level: 1 })).not.toHaveText(
+      await expect(visitor.getByRole("heading", { level: 1 })).toHaveText(
         "Имя программы для проверки CMS",
       );
       const preview = await ownerContext.newPage();
@@ -452,12 +463,6 @@ test(
           name: "Скачать несохранённый черновик",
         }),
       ).toBeVisible();
-      await panel
-        .getByRole("button", { name: "Опубликовать", exact: true })
-        .click();
-      await expect(panel.getByRole("status")).toHaveText("Опубликовано", {
-        timeout: 12_000,
-      });
       await visitor.goto(base + path);
       await expect(visitor.getByRole("heading", { level: 1 })).toHaveText(
         "Имя программы для проверки CMS",
@@ -512,6 +517,72 @@ test(
       assert.equal(markdown.status(), 200);
       assert.match(await markdown.text(), /^# /);
 
+      stage = "quiet automatic publication of pasted text in RP-001 questions";
+      await owner.goto(base + path);
+      await pencils(owner).nth(1).click();
+      const questions = owner.getByRole("dialog");
+      await expect(
+        questions.getByText(path + "~questions", { exact: true }),
+      ).toBeVisible();
+      await questions
+        .getByLabel("Заголовок", { exact: true })
+        .fill("Эпоха Возрождения");
+      await expect(
+        questions.getByLabel("Описание", { exact: true }),
+      ).toHaveValue("");
+      await addBlock(questions, "Текст");
+      await pasteHtml(
+        questions.getByRole("textbox", { name: "Текст блока" }),
+        '<p><span style="color: rgb(34, 42, 68); font-family: Calibri, sans-serif; font-size: 14pt">Почему это произошло именно там и тогда</span></p>' +
+          "<ul><li><p><strong>Богатство и города-государства</strong> помогли развитию торговли.</p><p><br></p></li>" +
+          '<li><p>Отдельный пункт со словом <a href="неполный адрес">источник</a>.</p></li></ul>',
+      );
+      await expect(
+        questions.getByLabel("Якорь для ссылки или примечания"),
+      ).toHaveValue("");
+      await expect(questions.getByRole("status")).toHaveText("Опубликовано");
+      await expect(questions.getByRole("alert")).toHaveCount(0);
+      await expect(
+        questions.getByText(
+          /Примечания к сохранению|Исправления и предупреждения/,
+        ),
+      ).toHaveCount(0);
+      await visitor.goto(base + path);
+      await expect(
+        visitor.getByText("Почему это произошло именно там и тогда", {
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(
+        visitor
+          .locator(".cms-rich strong")
+          .getByText("Богатство и города-государства"),
+      ).toBeVisible();
+      await expect(
+        visitor.getByText("Отдельный пункт со словом источник.", {
+          exact: true,
+        }),
+      ).toBeVisible();
+
+      stage = "draft autosave without publication rights";
+      const draftPath = "/research/rp-002";
+      editor.once("dialog", (dialog) => void dialog.accept());
+      await editorPanel
+        .getByRole("button", { name: "Выйти из редактора", exact: true })
+        .click();
+      const restricted = await openEditor(editor, draftPath);
+      const restrictedTitle = "Черновик редактора без права публикации";
+      await restricted
+        .getByLabel("Заголовок", { exact: true })
+        .fill(restrictedTitle);
+      await expect(restricted.getByRole("status")).toHaveText(
+        "Черновик сохранён",
+      );
+      await visitor.goto(base + draftPath);
+      await expect(visitor.getByRole("heading", { level: 1 })).not.toHaveText(
+        restrictedTitle,
+      );
+
       stage = "new publication, home cards and backup import";
       const newPath = "/publications/cms-browser-test";
       const newTitle = "Новая публикация для главной";
@@ -550,23 +621,12 @@ test(
       await addBlock(publication, "Текст");
       const rich = publication.getByRole("textbox", { name: "Текст блока" });
       const largeParagraph = "Длинный материал ".repeat(2800);
-      await rich.evaluate((element, paragraph) => {
-        (element as HTMLElement).focus();
-        const clipboard = new DataTransfer();
-        clipboard.setData(
-          "text/html",
-          '<p><span style="font-family: Calibri, sans-serif; color: rgb(255, 0, 0); font-size: 14pt"><strong>Форматированный текст</strong></span></p><p><br></p><ol><li>Первый пункт</li><li>Второй пункт</li></ol><table><tbody><tr><td style="background-color: rgb(255, 255, 0)">Ячейка</td></tr></tbody></table><p>' +
-            paragraph +
-            "</p>",
-        );
-        element.dispatchEvent(
-          new ClipboardEvent("paste", {
-            bubbles: true,
-            cancelable: true,
-            clipboardData: clipboard,
-          }),
-        );
-      }, largeParagraph);
+      await pasteHtml(
+        rich,
+        '<p><span style="font-family: Calibri, sans-serif; color: rgb(255, 0, 0); font-size: 14pt"><strong>Форматированный текст</strong></span></p><p><br></p><ol><li>Первый пункт</li><li>Второй пункт</li></ol><table><tbody><tr><td style="background-color: rgb(255, 255, 0)">Ячейка</td></tr></tbody></table><p>' +
+          largeParagraph +
+          "</p>",
+      );
       await expect(rich.locator("ol li")).toHaveCount(2);
       await expect(rich.locator("table")).toHaveCount(1);
       assert.ok(((await rich.textContent()) ?? "").length > 40000);
@@ -581,10 +641,9 @@ test(
         });
       const beforeAutosave = await cursor();
       assert.ok(beforeAutosave.selectionInEditor);
-      await expect(publication.getByRole("status")).toHaveText(
-        "Черновик сохранён",
-        { timeout: 15000 },
-      );
+      await expect(publication.getByRole("status")).toHaveText("Опубликовано", {
+        timeout: 15000,
+      });
       assert.deepEqual(await cursor(), beforeAutosave);
       await publication
         .getByRole("button", { name: "Предпросмотр", exact: true })
@@ -598,10 +657,6 @@ test(
       await expect(
         pagePreview.getByRole("heading", { name: "Одинаковый раздел" }),
       ).toHaveCount(2);
-      await publication
-        .getByRole("button", { name: "Опубликовать", exact: true })
-        .click();
-      await expect(publication.getByRole("status")).toHaveText("Опубликовано");
       await visitor.goto(base + newPath);
       await expect(
         visitor.getByRole("heading", { name: "Одинаковый раздел" }),
@@ -676,6 +731,20 @@ test(
       await expect(visitor.getByRole("heading", { level: 1 })).toHaveText(
         newTitle,
       );
+
+      stage = "unpublish keeps later edits private in the open editor";
+      owner.once("dialog", (dialog) => void dialog.accept());
+      await restored
+        .getByRole("button", { name: "Снять с публикации" })
+        .click();
+      await expect(restored.getByRole("status")).toHaveText("Публикация снята");
+      await restored
+        .getByLabel("Заголовок", { exact: true })
+        .fill("Правки снятого материала");
+      await expect(restored.getByRole("status")).toHaveText(
+        "Черновик сохранён",
+      );
+      assert.equal((await visitor.request.get(base + newPath)).status(), 404);
 
       stage = "sign-out and retained guest choice";
       await owner.goto(base + "/research/rp-001");
