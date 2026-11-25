@@ -16,11 +16,16 @@ import {
   visitChoiceCookie,
   visitChoiceMaxAge,
 } from "@/lib/account-preferences";
-import { seedByKey, validNativeFields } from "@/lib/cms/registry";
+import { seedByKey } from "@/lib/cms/registry";
+import {
+  normalizeDocument,
+  type DocumentNotice,
+} from "@/lib/cms/normalize-document";
 import {
   documentSchema,
   isHttps,
-  maxDocumentSize,
+  exceedsDocumentTransport,
+  maxDocumentBytes,
   mediaIdFromUrl,
   newPathSchema,
   pageKeySchema,
@@ -60,6 +65,13 @@ function errorResult(error: { code?: string; message: string }): Failure {
   if (error.code === "23503")
     return failure("Один из материалов, пользователей или файлов не найден.");
   if (error.code === "P0002") return failure("Запись больше недоступна.");
+  if (
+    error.code === "23514" &&
+    error.message.includes("content_versions_body_check")
+  )
+    return failure(
+      "Хранилище отклонило размер документа. Проверьте, применена ли миграция CMS 0.0.5.",
+    );
   console.error("CMS operation failed", error.code, error.message);
   return failure(
     "Операция не завершилась. Проверьте подключение CMS и повторите попытку.",
@@ -212,7 +224,7 @@ function cmsMediaIds(body: CmsDocument) {
 export async function writeEntry(
   input: unknown,
   content: FormData,
-): Promise<CmsResult<number>> {
+): Promise<CmsResult<{ revision: number; notices: DocumentNotice[] }>> {
   const parsed = request.safeParse(input);
   if (!parsed.success) return failure("Некорректный запрос сохранения.");
   const { key, intent, versionId } = parsed.data;
@@ -227,6 +239,7 @@ export async function writeEntry(
   if (!writer) return failure(noStorage);
   const seed = seedByKey.get(key);
   let body: CmsDocument | undefined;
+  let notices: DocumentNotice[] = [];
   if (intent === "restore") {
     if (!versionId) return failure("Укажите версию для восстановления.");
   } else if (intent === "unpublish") {
@@ -236,32 +249,25 @@ export async function writeEntry(
       );
   } else {
     const bodyJson = content instanceof FormData ? content.get("body") : null;
-    if (
-      typeof bodyJson !== "string" ||
-      !bodyJson ||
-      bodyJson.length > maxDocumentSize
-    ) {
-      return failure("Материал отсутствует или превышает допустимый размер.");
-    }
+    if (typeof bodyJson !== "string" || !bodyJson)
+      return failure("Документ · содержимое отсутствует.");
+    if (exceedsDocumentTransport(bodyJson))
+      return failure(
+        "Документ · размер превышает 4 МБ, которые сервер может принять за один запрос.",
+      );
     let input: unknown;
     try {
       input = JSON.parse(bodyJson);
     } catch {
-      return failure("Формат содержимого не распознан.");
+      return failure("Документ · повреждён формат JSON.");
     }
-    const result = documentSchema.safeParse(input);
-    if (!result.success) {
-      const path = result.error.issues[0]?.path ?? [];
-      if (path[0] === "blocks" && typeof path[1] === "number") {
-        return failure(
-          "Проверьте текст, ссылки и размеры в блоке " + (path[1] + 1) + ".",
-        );
-      }
-      return failure("Проверьте заголовок, ссылки и размеры материала.");
-    }
-    if (!validNativeFields(result.data, key))
-      return failure("Проверьте поля макета, ссылки и изображения.");
-    body = result.data;
+    const result = normalizeDocument(input, {
+      title: seed?.seed.title,
+      fields: seed?.fields,
+    });
+    if (!result.ok) return failure(result.field + " · " + result.message + ".");
+    body = result.body;
+    notices = result.notices;
   }
   if (seed && parsed.data.revision === 0) {
     const { error } = await writer.rpc("cms_seed", {
@@ -283,7 +289,7 @@ export async function writeEntry(
   if (error) return errorResult(error);
   if (intent === "publish" || intent === "unpublish") invalidate(key);
   else revalidatePath("/admin");
-  return success(data as number);
+  return success({ revision: data as number, notices });
 }
 
 export async function createEntry(
@@ -468,12 +474,9 @@ const backupSchema = z
     kind: z.literal("renascentia-backup"),
     entries: z
       .array(
-        z
-          .object({ key: pageKeySchema, revision, body: documentSchema })
-          .strict(),
+        z.object({ key: pageKeySchema, revision, body: z.unknown() }).strict(),
       )
-      .min(1)
-      .max(450),
+      .min(1),
   })
   .strict();
 
@@ -488,10 +491,10 @@ export async function importBackup(
   const file = form.get("backup");
   if (
     !(file instanceof File) ||
-    file.size > 3 * 1024 * 1024 ||
+    file.size > maxDocumentBytes ||
     form.get("confirm") !== "on"
   )
-    return failure("Выберите JSON до 3 МБ и подтвердите восстановление.");
+    return failure("Выберите JSON меньше 4 МБ и подтвердите восстановление.");
   let raw: unknown;
   try {
     raw = JSON.parse(await file.text());
@@ -506,14 +509,18 @@ export async function importBackup(
   ) {
     return failure("Файл не соответствует формату резервной копии.");
   }
-  const entries = parsed.data.entries;
-  for (const { key, body } of entries) {
-    if (
-      (!seedByKey.has(key) && !newPathSchema.safeParse(key).success) ||
-      !validNativeFields(body, key)
-    ) {
-      return failure("Недопустимое содержимое материала " + key);
-    }
+  const entries: { key: string; body: CmsDocument }[] = [];
+  for (const { key, body } of parsed.data.entries) {
+    const seed = seedByKey.get(key);
+    if (!seed && !newPathSchema.safeParse(key).success)
+      return failure("Недопустимый адрес материала " + key + ".");
+    const result = normalizeDocument(body, {
+      title: seed?.seed.title,
+      fields: seed?.fields,
+    });
+    if (!result.ok)
+      return failure(key + " · " + result.field + " · " + result.message + ".");
+    entries.push({ key, body: result.body });
   }
   const keys = entries.map(({ key }) => key);
   const heads = new Map<string, number>();

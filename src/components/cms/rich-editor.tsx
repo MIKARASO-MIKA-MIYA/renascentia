@@ -17,6 +17,13 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
 import { useState, type ReactNode } from "react";
 import {
+  safeAddress,
+  safeColor,
+  safeFont,
+  safeFontSize,
+  safeLineHeight,
+} from "@/lib/cms/content-format";
+import {
   alignments,
   fonts,
   fontSizes,
@@ -24,6 +31,7 @@ import {
   lineHeights,
   type RichNode,
 } from "@/lib/cms/schema";
+import { normalizePastedHtml } from "./pasted-html";
 
 const Styles = Extension.create({
   name: "cmsStyles",
@@ -142,12 +150,13 @@ function Toolbar({ editor }: { editor: Editor }) {
       .run();
   }
   function applyLink() {
-    if (link && !isLink(link)) {
+    const href = safeAddress(link);
+    if (link.trim() && !href) {
       setError("Используйте HTTPS-ссылку, путь сайта или якорь.");
       return;
     }
     const selection = chain().extendMarkRange("link");
-    if (link) selection.setLink({ href: link, target: "_blank" }).run();
+    if (href) selection.setLink({ href, target: "_blank" }).run();
     else selection.unsetLink().run();
     setLinkVisible(false);
     setError("");
@@ -218,7 +227,7 @@ function Toolbar({ editor }: { editor: Editor }) {
           <span className="sr-only">Цвет текста</span>
           <input
             type="color"
-            value={textStyle.color ?? "#191919"}
+            value={safeColor(textStyle.color) ?? "#191919"}
             onChange={(event) => chain().setColor(event.target.value).run()}
           />
         </label>
@@ -226,7 +235,7 @@ function Toolbar({ editor }: { editor: Editor }) {
           <span className="sr-only">Цвет выделения</span>
           <input
             type="color"
-            value={textStyle.backgroundColor ?? "#fff1a3"}
+            value={safeColor(textStyle.backgroundColor) ?? "#fff1a3"}
             onChange={(event) =>
               chain().setBackgroundColor(event.target.value).run()
             }
@@ -234,7 +243,7 @@ function Toolbar({ editor }: { editor: Editor }) {
         </label>
         <select
           aria-label="Шрифт"
-          value={textStyle.fontFamily ?? ""}
+          value={safeFont(textStyle.fontFamily) ?? ""}
           onChange={(event) =>
             (event.target.value
               ? chain().setFontFamily(event.target.value)
@@ -249,7 +258,7 @@ function Toolbar({ editor }: { editor: Editor }) {
         </select>
         <select
           aria-label="Размер шрифта"
-          value={textStyle.fontSize ?? ""}
+          value={safeFontSize(textStyle.fontSize) ?? ""}
           onChange={(event) =>
             (event.target.value
               ? chain().setFontSize(event.target.value)
@@ -264,7 +273,7 @@ function Toolbar({ editor }: { editor: Editor }) {
         </select>
         <select
           aria-label="Межстрочный интервал"
-          value={textStyle.lineHeight ?? ""}
+          value={safeLineHeight(textStyle.lineHeight) ?? ""}
           onChange={(event) =>
             (event.target.value
               ? chain().setLineHeight(event.target.value)
@@ -519,6 +528,7 @@ export function RichEditor({
     immediatelyRender: false,
     shouldRerenderOnTransaction: true,
     editorProps: {
+      transformPastedHTML: normalizePastedHtml,
       attributes: {
         class: "cms-rich cms-prosemirror",
         role: "textbox",

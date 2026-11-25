@@ -5,7 +5,7 @@
 ## Supabase
 
 1. Создайте проект Supabase. В настройках Authentication выключите **Allow new users to sign up** и **Allow anonymous sign-ins**. Оставьте Email как способ входа.
-2. В SQL Editor выполните содержимое [миграции](../supabase/migrations/20261125000100_content_editor.sql). Для проекта, привязанного к Supabase CLI, ту же миграцию можно применить через `supabase db push`.
+2. В SQL Editor примените миграции по возрастанию номера. Для нового проекта выполните [создание CMS](../supabase/migrations/20261125000100_content_editor.sql), затем [изменение лимита документа в 0.0.5](../supabase/migrations/20261125000200_cms_document_size.sql). Для действующей CMS 0.0.3 или 0.0.4 нужна только вторая миграция. В проекте, привязанном к Supabase CLI, миграции можно применить через `supabase db push`.
 3. В Authentication → Users создайте первого пользователя вручную и подтвердите его email. Скопируйте UUID пользователя.
 4. В SQL Editor привяжите роль владельца к этому UUID. Замените пример идентификатором созданного пользователя.
 

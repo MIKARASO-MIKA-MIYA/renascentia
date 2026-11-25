@@ -40,8 +40,13 @@ export const imageTypes = [
   "image/gif",
 ] as const;
 export const maxImageSize = 3 * 1024 * 1024;
-export const maxDocumentSize = 768 * 1024;
-const cleanText = z.string().max(8000);
+// Leave space for the Server Action arguments and multipart envelope.
+export const maxDocumentBytes = 4 * 1024 * 1024 - 32 * 1024;
+export const maxRichDepth = 128;
+
+export function exceedsDocumentTransport(json: string) {
+  return new TextEncoder().encode(json).byteLength > maxDocumentBytes;
+}
 
 export function stripControlCharacters(value: string) {
   return Array.from(value)
@@ -140,7 +145,7 @@ const textStyle = z
   .strict();
 const link = z
   .object({
-    href: z.string().max(2048).refine(isLink),
+    href: z.string().refine(isLink, "недопустимый адрес ссылки"),
     target: z.enum(["_blank", "_self"]).nullish(),
     rel: z.string().max(60).nullish(),
     class: z.null().optional(),
@@ -165,6 +170,16 @@ const markSchema = z.union([
 const empty = z.object({}).strict();
 const textAlign = z.enum(alignments).nullish();
 const indent = z.number().int().min(0).max(4).nullish();
+const cellAttrs = z
+  .object({
+    colspan: z.number().int().min(1).max(1000),
+    rowspan: z.number().int().min(1).max(65534),
+    colwidth: z.array(z.number().int().min(0).max(2400)).nullable(),
+    backgroundColor: color.nullish(),
+    align: z.enum(alignments).nullish(),
+  })
+  .strict();
+
 const nodeAttrs = {
   doc: empty,
   paragraph: z.object({ textAlign, indent }).strict(),
@@ -175,7 +190,7 @@ const nodeAttrs = {
   bulletList: empty,
   orderedList: z
     .object({
-      start: z.number().int().min(1).max(100000).nullish(),
+      start: z.number().int().min(-2147483648).max(2147483647).nullish(),
       type: z.enum(["1", "a", "A", "i", "I"]).nullish(),
     })
     .strict(),
@@ -190,28 +205,16 @@ const nodeAttrs = {
   detailsContent: empty,
   table: empty,
   tableRow: empty,
-  tableHeader: z
-    .object({
-      colspan: z.number().int().min(1).max(40),
-      rowspan: z.number().int().min(1).max(100),
-      colwidth: z.array(z.number().int().min(1).max(2400)).max(40).nullable(),
-      backgroundColor: color.nullish(),
-      align: z.enum(alignments).nullish(),
-    })
-    .strict(),
-  tableCell: z
-    .object({
-      colspan: z.number().int().min(1).max(40),
-      rowspan: z.number().int().min(1).max(100),
-      colwidth: z.array(z.number().int().min(1).max(2400)).max(40).nullable(),
-      backgroundColor: color.nullish(),
-      align: z.enum(alignments).nullish(),
-    })
-    .strict(),
+  tableHeader: cellAttrs,
+  tableCell: cellAttrs,
   text: empty,
 };
 
-type NodeName = keyof typeof nodeAttrs;
+export type NodeName = keyof typeof nodeAttrs;
+export const richNodeTypes = Object.keys(nodeAttrs) as [
+  NodeName,
+  ...NodeName[],
+];
 export type RichNode = {
   type: NodeName;
   attrs?: Record<string, unknown>;
@@ -221,11 +224,11 @@ export type RichNode = {
 };
 const nodeShape = z
   .object({
-    type: z.enum(Object.keys(nodeAttrs) as [NodeName, ...NodeName[]]),
+    type: z.enum(richNodeTypes),
     attrs: z.record(z.string(), z.unknown()).optional(),
-    content: z.array(z.unknown()).max(1800).optional(),
-    text: z.string().min(1).max(40000).optional(),
-    marks: z.array(markSchema).max(9).optional(),
+    content: z.array(z.unknown()).optional(),
+    text: z.string().min(1).optional(),
+    marks: z.array(markSchema).optional(),
   })
   .strict();
 
@@ -274,13 +277,9 @@ function validChildren(node: z.infer<typeof nodeShape>, children: RichNode[]) {
     case "taskList":
       return children.length > 0 && every("taskItem");
     case "table":
-      return children.length > 0 && children.length <= 100 && every("tableRow");
+      return children.length > 0 && every("tableRow");
     case "tableRow":
-      return (
-        children.length > 0 &&
-        children.length <= 40 &&
-        every("tableCell", "tableHeader")
-      );
+      return children.length > 0 && every("tableCell", "tableHeader");
     case "details":
       return (
         children.length === 2 &&
@@ -292,42 +291,54 @@ function validChildren(node: z.infer<typeof nodeShape>, children: RichNode[]) {
   }
 }
 
-function isRichDocument(input: unknown): input is RichNode {
-  let count = 0;
-  function validate(value: unknown, depth: number): value is RichNode {
-    if (depth > 24 || ++count > 12000) return false;
+export function richDocumentProblem(input: unknown) {
+  function validate(value: unknown, positions: number[]): string | null {
+    const label = positions.length
+      ? "Текст, узел " + positions.join(".")
+      : "Текст";
+    if (positions.length > maxRichDepth)
+      return label + " · слишком глубокая вложенность";
     const parsed = nodeShape.safeParse(value);
-    if (!parsed.success) return false;
+    if (!parsed.success)
+      return label + " · неизвестный тип узла или неверный формат";
     const node = parsed.data;
-    if (!nodeAttrs[node.type].safeParse(node.attrs ?? {}).success) return false;
+    if (!positions.length && node.type !== "doc")
+      return label + " · отсутствует корневой документ";
+    const attrs = nodeAttrs[node.type].safeParse(node.attrs ?? {});
+    if (!attrs.success)
+      return (
+        label +
+        " · некорректный атрибут " +
+        String(attrs.error.issues[0]?.path[0] ?? node.type)
+      );
     if (
       node.type === "text"
         ? !node.text || node.content !== undefined
         : node.text !== undefined
     )
-      return false;
-    if (node.marks && !inlineNodes.has(node.type)) return false;
+      return label + " · текст находится вне допустимого текстового узла";
+    if (node.marks && !inlineNodes.has(node.type))
+      return label + " · форматирование находится вне строки текста";
     const children = node.content ?? [];
-    return (
-      children.every((child): child is RichNode =>
-        validate(child, depth + 1),
-      ) && validChildren(node, children)
-    );
+    for (const [index, child] of children.entries()) {
+      const problem = validate(child, [...positions, index + 1]);
+      if (problem) return problem;
+    }
+    return validChildren(node, children as RichNode[])
+      ? null
+      : label + " · нарушена структура узла «" + node.type + "»";
   }
-  return validate(input, 0) && input.type === "doc";
+  return validate(input, []);
 }
 
 export const mediaSchema = z
   .object({
-    url: z.string().max(2048).refine(isImageUrl),
-    alt: z.string().max(420),
-    caption: z.string().max(600),
-    author: z.string().max(220),
-    source: z
-      .string()
-      .max(2048)
-      .refine((value) => value === "" || isHttps(value)),
-    license: z.string().max(220),
+    url: z.string().refine(isImageUrl),
+    alt: z.string(),
+    caption: z.string(),
+    author: z.string(),
+    source: z.string().refine((value) => value === "" || isHttps(value)),
+    license: z.string(),
     width: z.number().min(10).max(100),
     maxWidth: z.number().int().min(100).max(2400).nullable().optional(),
     height: z.number().int().min(50).max(1800).nullable().optional(),
@@ -337,11 +348,8 @@ export const mediaSchema = z
   .strict();
 const videoSchema = z
   .object({
-    url: z
-      .string()
-      .max(2048)
-      .refine((value) => Boolean(videoSource(value))),
-    caption: z.string().max(600),
+    url: z.string().refine((value) => Boolean(videoSource(value))),
+    caption: z.string(),
     width: z.number().min(20).max(100),
     align: z.enum(["left", "center", "right"]),
   })
@@ -362,8 +370,8 @@ export const blockSchema = z
       .string()
       .regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,79}$/)
       .optional(),
-    doc: z.custom<RichNode>(isRichDocument),
-    images: z.array(mediaSchema).max(24).optional(),
+    doc: z.custom<RichNode>((value) => richDocumentProblem(value) === null),
+    images: z.array(mediaSchema).optional(),
     video: videoSchema.optional(),
   })
   .strict()
@@ -378,10 +386,10 @@ export const blockSchema = z
 export const documentSchema = z
   .object({
     format: z.literal(1),
-    title: z.string().trim().min(1).max(220),
-    description: z.string().max(1200),
-    fields: z.record(z.string().regex(/^[a-zA-Z0-9_.-]{1,100}$/), cleanText),
-    blocks: z.array(blockSchema).max(450),
+    title: z.string().trim().min(1),
+    description: z.string(),
+    fields: z.record(z.string().regex(/^[a-zA-Z0-9_.-]{1,100}$/), z.string()),
+    blocks: z.array(blockSchema),
   })
   .strict()
   .superRefine((document, context) => {
@@ -397,15 +405,6 @@ export const documentSchema = z
         code: "custom",
         path: ["blocks"],
         message: "Идентификаторы блоков и якоря должны быть уникальными.",
-      });
-    }
-    if (
-      Object.keys(document.fields).length > 450 ||
-      JSON.stringify(document).length > maxDocumentSize
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "Содержимое превышает допустимый размер.",
       });
     }
   });

@@ -15,8 +15,10 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
+  memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -30,8 +32,12 @@ import {
 } from "@/app/admin/actions";
 import type { Field } from "@/lib/cms/registry";
 import {
+  normalizeDocument,
+  type DocumentNotice,
+} from "@/lib/cms/normalize-document";
+import {
   blockLabels,
-  documentSchema,
+  exceedsDocumentTransport,
   plainText,
   richDoc,
   richHeading,
@@ -64,6 +70,14 @@ type Panel = "edit" | "preview" | "history";
 type EditorProps = EditorOptions & { initial: EditState; onClose: () => void };
 type Intent = "draft" | "publish" | "restore" | "unpublish";
 const blockKinds = Object.keys(blockLabels) as CmsBlockType[];
+
+const BlockRead = memo(function BlockRead({ block }: { block: CmsBlock }) {
+  return (
+    <div className="cms-block-read">
+      <RichBlocks blocks={[{ ...block, anchor: undefined }]} />
+    </div>
+  );
+});
 
 function newBlock(type: CmsBlockType): CmsBlock {
   const block = { id: crypto.randomUUID(), type, doc: richDoc() };
@@ -304,6 +318,7 @@ export default function ContentEditor({
 }: EditorProps) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
+  const noticesPanel = useRef<HTMLDetailsElement>(null);
   const [body, setBody] = useState(initial.body);
   const [saved, setSaved] = useState(initial.body);
   const [revision, setRevision] = useState(initial.revision);
@@ -321,6 +336,7 @@ export default function ContentEditor({
     initial.revision ? "Черновик загружен" : "Начальная версия",
   );
   const [error, setError] = useState("");
+  const [notices, setNotices] = useState<DocumentNotice[]>([]);
   const [conflict, setConflict] = useState(false);
   const [undoStack, setUndoStack] = useState<CmsDocument[]>([]);
   const [redoStack, setRedoStack] = useState<CmsDocument[]>([]);
@@ -332,16 +348,39 @@ export default function ContentEditor({
   const [compare, setCompare] = useState(false);
   const dirty = body !== saved;
   const hasRequest = useRef(false);
+  const lastChange = useRef<{ group: string; time: number } | undefined>(
+    undefined,
+  );
   const bodyRef = useRef(body);
   const activeIndex = body.blocks.findIndex(({ id }) => id === activeBlock);
+  const previewUrl =
+    entryKey.split("~")[0] + "?cms-preview=" + encodeURIComponent(entryKey);
+  const previewBody = useMemo(() => {
+    if (panel !== "preview" && !(panel === "history" && compare)) return body;
+    const normalized = normalizeDocument(body, {
+      title: initial.body.title,
+      fields: Object.fromEntries(fields),
+    });
+    return normalized.ok ? normalized.body : body;
+  }, [body, compare, fields, initial.body.title, panel]);
 
   const replaceBody = useCallback(
-    (next: CmsDocument, history = true) => {
+    (next: CmsDocument, history = true, group?: string) => {
       const previous = bodyRef.current;
       if (next === previous) return;
       if (history) {
-        setUndoStack((stack) => [...stack.slice(-49), previous]);
-        setRedoStack([]);
+        const now = performance.now();
+        if (
+          !group ||
+          lastChange.current?.group !== group ||
+          now - lastChange.current.time > 700
+        ) {
+          setUndoStack((stack) => [...stack.slice(-49), previous]);
+          setRedoStack([]);
+        }
+        lastChange.current = group ? { group, time: now } : undefined;
+      } else {
+        lastChange.current = undefined;
       }
       bodyRef.current = next;
       setBody(next);
@@ -352,12 +391,16 @@ export default function ContentEditor({
 
   function updateBlock(id: string, updates: Partial<CmsBlock>) {
     const current = bodyRef.current;
-    replaceBody({
-      ...current,
-      blocks: current.blocks.map((block) =>
-        block.id === id ? { ...block, ...updates } : block,
-      ),
-    });
+    replaceBody(
+      {
+        ...current,
+        blocks: current.blocks.map((block) =>
+          block.id === id ? { ...block, ...updates } : block,
+        ),
+      },
+      true,
+      updates.doc ? "text:" + id : undefined,
+    );
   }
 
   function addBlock(
@@ -400,11 +443,15 @@ export default function ContentEditor({
     async (intent: Intent, versionId?: number) => {
       if (hasRequest.current || conflict) return;
       const snapshot = bodyRef.current;
-      if (
-        (intent === "draft" || intent === "publish") &&
-        !documentSchema.safeParse(snapshot).success
-      ) {
-        setError("Проверьте заголовок, размеры, ссылки и якоря блоков.");
+      const json =
+        intent === "draft" || intent === "publish"
+          ? JSON.stringify(snapshot)
+          : undefined;
+      if (json && exceedsDocumentTransport(json)) {
+        setError(
+          "Документ · размер превышает 4 МБ, которые сервер может принять за один запрос.",
+        );
+        setStatus("Сохранение остановлено");
         return;
       }
       hasRequest.current = true;
@@ -413,8 +460,7 @@ export default function ContentEditor({
       setStatus(intent === "publish" ? "Публикация…" : "Сохранение…");
       try {
         const content = new FormData();
-        if (intent === "draft" || intent === "publish")
-          content.set("body", JSON.stringify(snapshot));
+        if (json) content.set("body", json);
         const result = await writeEntry(
           { key: entryKey, intent, revision, versionId },
           content,
@@ -425,7 +471,8 @@ export default function ContentEditor({
           setStatus("Сохранение остановлено");
           return;
         }
-        setRevision(result.data);
+        setRevision(result.data.revision);
+        setNotices(result.data.notices);
         if (intent === "restore" && selected) {
           replaceBody(selected.body);
           setSaved(selected.body);
@@ -463,6 +510,22 @@ export default function ContentEditor({
     dialog.current?.close();
     onClose();
   }, [dirty, onClose, pending, uploading]);
+
+  function downloadPending() {
+    const backup = {
+      format: 1,
+      kind: "renascentia-backup",
+      entries: [{ key: entryKey, revision, body: bodyRef.current }],
+    };
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(backup)], { type: "application/json" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "renascentia-draft.json";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 
   const undo = useCallback(() => {
     const previous = undoStack.at(-1);
@@ -710,17 +773,43 @@ export default function ContentEditor({
             </button>
           )}
         </div>
-        <p role="status">
-          {uploading
-            ? "Загрузка изображения…"
-            : dirty && !pending && !error
-              ? "Есть несохранённые изменения"
-              : status}
-        </p>
-        {error && (
-          <p className="cms-error" role="alert">
-            {error}
+        <div className="cms-save-status">
+          <p role="status">
+            {uploading
+              ? "Загрузка изображения…"
+              : dirty && !pending && !error
+                ? "Есть несохранённые изменения"
+                : status}
           </p>
+          {!!notices.length && (
+            <button
+              type="button"
+              className="cms-notice-link"
+              onClick={() => {
+                if (noticesPanel.current) {
+                  noticesPanel.current.open = true;
+                  noticesPanel.current.scrollIntoView({ block: "nearest" });
+                  noticesPanel.current
+                    .querySelector("summary")
+                    ?.focus({ preventScroll: true });
+                }
+              }}
+            >
+              Примечания к сохранению ({notices.length})
+            </button>
+          )}
+        </div>
+        {error && (
+          <div className="cms-save-error">
+            <p className="cms-error" role="alert">
+              {error}
+            </p>
+            {dirty && (
+              <button type="button" onClick={downloadPending}>
+                Скачать несохранённый черновик
+              </button>
+            )}
+          </div>
         )}
       </div>
       <div className="cms-dialog-content">
@@ -731,7 +820,6 @@ export default function ContentEditor({
                 Заголовок
                 <input
                   value={body.title}
-                  maxLength={220}
                   onChange={(event) =>
                     replaceBody({
                       ...bodyRef.current,
@@ -744,7 +832,6 @@ export default function ContentEditor({
                 Описание
                 <textarea
                   value={body.description}
-                  maxLength={1200}
                   onChange={(event) =>
                     replaceBody({
                       ...bodyRef.current,
@@ -979,9 +1066,7 @@ export default function ContentEditor({
                       />
                     </div>
                   ) : (
-                    <div className="cms-block-read">
-                      <RichBlocks blocks={[{ ...block, anchor: undefined }]} />
-                    </div>
+                    <BlockRead block={block} />
                   )}
                 </section>
                 {renderAdd(index + 1)}
@@ -1001,50 +1086,54 @@ export default function ContentEditor({
                   Сохранить для просмотра страницы
                 </button>
               ) : (
-                <a
-                  href={
-                    entryKey.split("~")[0] +
-                    "?cms-preview=" +
-                    encodeURIComponent(entryKey)
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href={previewUrl} target="_blank" rel="noopener noreferrer">
                   Открыть черновик на странице
                 </a>
               )}
             </div>
-            <h1>{body.title}</h1>
-            <p>{body.description}</p>
-            {!!fields.length && (
-              <dl>
-                {fields.map(([name, field]) => (
-                  <div key={name}>
-                    <dt>{field.label}</dt>
-                    <dd>
-                      {field.type === "image" && body.fields[name] ? (
-                        <CmsFigure
-                          image={{
-                            url: body.fields[name],
-                            alt: "",
-                            caption: "",
-                            source: "",
-                            author: "",
-                            license: "",
-                            width: 50,
-                            align: "left",
-                            wrap: false,
-                          }}
-                        />
-                      ) : (
-                        body.fields[name]
-                      )}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
+            {!dirty ? (
+              <iframe
+                className="cms-preview-page"
+                key={revision}
+                title="Предпросмотр страницы"
+                src={previewUrl}
+              />
+            ) : (
+              <>
+                <h1>{previewBody.title}</h1>
+                <p>{previewBody.description}</p>
+                {!!fields.length && (
+                  <dl>
+                    {fields.map(([name, field]) => (
+                      <div key={name}>
+                        <dt>{field.label}</dt>
+                        <dd>
+                          {field.type === "image" &&
+                          previewBody.fields[name] ? (
+                            <CmsFigure
+                              image={{
+                                url: previewBody.fields[name],
+                                alt: "",
+                                caption: "",
+                                source: "",
+                                author: "",
+                                license: "",
+                                width: 50,
+                                align: "left",
+                                wrap: false,
+                              }}
+                            />
+                          ) : (
+                            previewBody.fields[name]
+                          )}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                <RichBlocks blocks={previewBody.blocks} />
+              </>
             )}
-            <RichBlocks blocks={body.blocks} />
           </article>
         )}
         {panel === "history" && (
@@ -1105,7 +1194,10 @@ export default function ContentEditor({
                   )}
                 </div>
                 {compare ? (
-                  <VersionComparison before={selected.body} after={body} />
+                  <VersionComparison
+                    before={selected.body}
+                    after={previewBody}
+                  />
                 ) : (
                   <>
                     <h1>{selected.body.title}</h1>
@@ -1116,6 +1208,22 @@ export default function ContentEditor({
               </article>
             )}
           </div>
+        )}
+        {!!notices.length && (
+          <details ref={noticesPanel} className="cms-notices">
+            <summary>Исправления и предупреждения</summary>
+            <ul>
+              {notices.map(({ level, field, message }) => (
+                <li key={level + field + message}>
+                  <strong>
+                    {level === "repair" ? "Исправлено" : "Предупреждение"} ·{" "}
+                    {field}
+                  </strong>
+                  <span>{message}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
       </div>
     </dialog>

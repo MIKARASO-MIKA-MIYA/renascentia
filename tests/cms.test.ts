@@ -15,6 +15,8 @@ import {
   videoSource,
 } from "../src/lib/cms/schema";
 import { toMarkdown } from "../src/lib/cms/markdown";
+import { normalizeDocument } from "../src/lib/cms/normalize-document";
+import { exceedsDocumentTransport, richHeading } from "../src/lib/cms/schema";
 import {
   asRole,
   editorId,
@@ -113,6 +115,179 @@ test("content permits the supported media and URLs and rejects unsafe structure"
     toMarkdown(sample("Заголовок")),
     /^# Заголовок\n\nРедакционная запись/m,
   );
+});
+
+test("normalization repairs pasted styles, repeated anchors and oversized media without dropping text", () => {
+  const heading = {
+    id: "same",
+    type: "heading",
+    doc: richDoc(richHeading("Одинаковый раздел"), richParagraph()),
+  };
+  const original = {
+    ...sample(""),
+    blocks: [
+      heading,
+      heading,
+      {
+        id: "formatted",
+        type: "text",
+        doc: {
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              attrs: { textAlign: "start", indent: -2 },
+              content: [
+                {
+                  type: "text",
+                  text: "Сохранённый текст",
+                  marks: [
+                    {
+                      type: "textStyle",
+                      attrs: {
+                        color: "rgb(255, 0, 0)",
+                        fontFamily: '"Calibri", sans-serif',
+                        fontSize: "14pt",
+                        lineHeight: "150%",
+                      },
+                    },
+                    { type: "bold" },
+                    { type: "bold" },
+                    {
+                      type: "link",
+                      attrs: { href: " http://example.org/source " },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        id: "image",
+        type: "image",
+        doc: richDoc(),
+        images: [{ url: "/images/florence.webp", width: "190%", height: 4500 }],
+      },
+      {
+        id: "video",
+        type: "video",
+        doc: richDoc(),
+        video: { url: "https://example.org/home" },
+      },
+    ],
+  };
+  const result = normalizeDocument(original);
+  assert.ok(result.ok);
+  const { body, notices } = result;
+  assert.equal(body.title, "Без названия");
+  assert.equal(body.blocks[0].anchor, "odinakovyy-razdel");
+  assert.equal(body.blocks[1].anchor, "odinakovyy-razdel-2");
+  assert.notEqual(body.blocks[0].id, body.blocks[1].id);
+  assert.equal(body.blocks[0].doc.content?.[1]?.type, "paragraph");
+  const marks = body.blocks[2].doc.content?.[0]?.content?.[0]?.marks;
+  assert.deepEqual(marks?.[0], {
+    type: "textStyle",
+    attrs: {
+      color: "#ff0000",
+      fontFamily: "Arial",
+      fontSize: "18px",
+      lineHeight: "1.5",
+    },
+  });
+  assert.equal(marks?.filter(({ type }) => type === "bold").length, 1);
+  assert.deepEqual(marks?.at(-1), {
+    type: "link",
+    attrs: { href: "https://example.org/source" },
+  });
+  assert.equal(body.blocks[3].images?.[0]?.width, 100);
+  assert.equal(body.blocks[3].images?.[0]?.height, 1800);
+  assert.equal(body.blocks[4].video, undefined);
+  assert.ok(
+    notices.some(
+      ({ level, field }) =>
+        level === "warning" && field.includes("Альтернативный текст"),
+    ),
+  );
+  assert.ok(
+    notices.some(
+      ({ level, field }) => level === "repair" && field.includes("Якорь"),
+    ),
+  );
+  assert.ok(documentSchema.safeParse(body).success);
+});
+
+test("unsafe links and invalid structure identify the specific block and field", () => {
+  const result = normalizeDocument({
+    ...sample("Проверка"),
+    blocks: [
+      {
+        id: "link",
+        type: "text",
+        doc: richDoc({
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "ссылка",
+              marks: [{ type: "link", attrs: { href: "javascript:" } }],
+            },
+          ],
+        }),
+      },
+    ],
+  });
+  assert.ok(!result.ok);
+  assert.match(result.field, /Блок 1.*Адрес ссылки/);
+  assert.match(result.message, /опасный протокол/);
+  const invalid = normalizeDocument({
+    ...sample("Структура"),
+    blocks: [
+      {
+        id: "a",
+        type: "text",
+        doc: { type: "doc", content: [{ type: "iframe" }] },
+      },
+    ],
+  });
+  assert.ok(!invalid.ok);
+  assert.match(invalid.field, /Блок 1.*узел 1/);
+  assert.match(invalid.message, /iframe/);
+});
+
+test("article length follows the request byte budget instead of the former text and block limits", () => {
+  const longText = "длинный абзац ".repeat(34000);
+  const original = {
+    ...sample("Длинная статья"),
+    blocks: [
+      {
+        id: "long",
+        type: "text",
+        doc: richDoc(
+          richParagraph(longText),
+          ...Array.from({ length: 1850 }, () => richParagraph()),
+        ),
+      },
+      ...Array.from({ length: 460 }, (_, index) => ({
+        id: "section-" + index,
+        type: "text",
+        doc: richDoc(richParagraph("Раздел")),
+      })),
+    ],
+  };
+  const result = normalizeDocument(original);
+  assert.ok(result.ok);
+  assert.equal(result.body.blocks.length, 461);
+  assert.equal(result.body.blocks[0].doc.content?.length, 1851);
+  assert.equal(
+    result.body.blocks[0].doc.content?.[0].content?.[0].text,
+    longText,
+  );
+  const encoded = JSON.stringify(result.body);
+  assert.ok(Buffer.byteLength(encoded) > 768 * 1024);
+  assert.ok(!exceedsDocumentTransport(encoded));
+  assert.ok(exceedsDocumentTransport("д".repeat(2200000)));
 });
 
 test("SQL RLS, drafts, publication rights, version locking, restore, unpublish and storage", async () => {
@@ -330,6 +505,24 @@ test("SQL RLS, drafts, publication rights, version locking, restore, unpublish a
       (await db.query("select * from public.media_assets")).rows.length,
       1,
     );
+    const longBody = sample("Исследование на 2,8 МБ");
+    longBody.blocks[0].doc = richDoc(richParagraph("а".repeat(1400000)));
+    const longJson = JSON.stringify(longBody);
+    assert.ok(Buffer.byteLength(longJson) > 2600000);
+    assert.ok(!exceedsDocumentTransport(longJson));
+    await writer((connection) =>
+      connection.query(
+        "select public.cms_write($1, $2, 6, 'publish', $3::jsonb)",
+        [ownerId, entry, longJson],
+      ),
+    );
+    const visibleLength = await asRole(db, "anon", "", (connection) =>
+      connection.query<{ length: number }>(
+        "select length(body #>> '{blocks,0,doc,content,0,content,0,text}') as length from public.cms_public($1)",
+        [entry],
+      ),
+    );
+    assert.equal(visibleLength.rows[0].length, 1400000);
   } finally {
     await db.close();
   }

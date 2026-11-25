@@ -59,7 +59,7 @@ async function addBlock(dialog: Locator, type: string) {
 
 test(
   "browser flow with a local PostgreSQL fixture and Supabase-compatible HTTP",
-  { timeout: 210_000 },
+  { timeout: 250_000 },
   async () => {
     const fixture = await startFixture();
     const next = spawn(
@@ -444,6 +444,14 @@ test(
       await expect(editorPanel.getByRole("alert")).toContainText(
         "уже изменено",
       );
+      await expect(
+        editorPanel.getByLabel("Заголовок", { exact: true }),
+      ).toHaveValue("Не должен перезаписать владельца");
+      await expect(
+        editorPanel.getByRole("button", {
+          name: "Скачать несохранённый черновик",
+        }),
+      ).toBeVisible();
       await panel
         .getByRole("button", { name: "Опубликовать", exact: true })
         .click();
@@ -519,10 +527,94 @@ test(
       ).toBeVisible();
       assert.equal((await visitor.request.get(base + newPath)).status(), 404);
       const publication = await openEditor(owner, newPath);
+      stage = "large paste, unique anchors, autosave and page preview";
+      await publication.getByRole("button", { name: "На весь экран" }).click();
+      await expect(publication).toHaveAttribute("data-full", "true");
+      assert.ok(
+        await publication.evaluate((element) => {
+          const toolbar = element
+            .querySelector(".cms-editor-bar")
+            ?.getBoundingClientRect();
+          const content = element
+            .querySelector(".cms-dialog-content")
+            ?.getBoundingClientRect();
+          return toolbar && content && content.top >= toolbar.bottom - 1;
+        }),
+      );
+      for (let index = 0; index < 2; index++) {
+        await addBlock(publication, "Заголовок");
+        await publication
+          .getByRole("textbox", { name: "Текст блока" })
+          .fill("Одинаковый раздел");
+      }
+      await addBlock(publication, "Текст");
+      const rich = publication.getByRole("textbox", { name: "Текст блока" });
+      const largeParagraph = "Длинный материал ".repeat(2800);
+      await rich.evaluate((element, paragraph) => {
+        (element as HTMLElement).focus();
+        const clipboard = new DataTransfer();
+        clipboard.setData(
+          "text/html",
+          '<p><span style="font-family: Calibri, sans-serif; color: rgb(255, 0, 0); font-size: 14pt"><strong>Форматированный текст</strong></span></p><p><br></p><ol><li>Первый пункт</li><li>Второй пункт</li></ol><table><tbody><tr><td style="background-color: rgb(255, 255, 0)">Ячейка</td></tr></tbody></table><p>' +
+            paragraph +
+            "</p>",
+        );
+        element.dispatchEvent(
+          new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: clipboard,
+          }),
+        );
+      }, largeParagraph);
+      await expect(rich.locator("ol li")).toHaveCount(2);
+      await expect(rich.locator("table")).toHaveCount(1);
+      assert.ok(((await rich.textContent()) ?? "").length > 40000);
+      const cursor = () =>
+        rich.evaluate((element) => {
+          const selection = element.ownerDocument.getSelection();
+          return {
+            selectionInEditor: element.contains(selection?.focusNode ?? null),
+            offset: selection?.focusOffset,
+            scrollTop: element.closest(".cms-dialog-content")?.scrollTop,
+          };
+        });
+      const beforeAutosave = await cursor();
+      assert.ok(beforeAutosave.selectionInEditor);
+      await expect(publication.getByRole("status")).toHaveText(
+        "Черновик сохранён",
+        { timeout: 15000 },
+      );
+      assert.deepEqual(await cursor(), beforeAutosave);
+      await publication
+        .getByRole("button", { name: "Предпросмотр", exact: true })
+        .click();
+      const pagePreview = publication.frameLocator(
+        'iframe[title="Предпросмотр страницы"]',
+      );
+      await expect(
+        pagePreview.getByRole("heading", { level: 1, name: newTitle }),
+      ).toBeVisible();
+      await expect(
+        pagePreview.getByRole("heading", { name: "Одинаковый раздел" }),
+      ).toHaveCount(2);
       await publication
         .getByRole("button", { name: "Опубликовать", exact: true })
         .click();
       await expect(publication.getByRole("status")).toHaveText("Опубликовано");
+      await visitor.goto(base + newPath);
+      await expect(
+        visitor.getByRole("heading", { name: "Одинаковый раздел" }),
+      ).toHaveCount(2);
+      await expect(visitor.locator("#odinakovyy-razdel")).toBeVisible();
+      await expect(visitor.locator("#odinakovyy-razdel-2")).toBeVisible();
+      await expect(visitor.locator(".cms-rich p:empty").first()).toBeVisible();
+      await expect(
+        visitor
+          .locator(".cms-rich strong")
+          .filter({ hasText: "Форматированный текст" }),
+      ).toBeVisible();
+      await expect(visitor.getByRole("cell", { name: "Ячейка" })).toBeVisible();
       await visitor.goto(base + "/publications");
       await expect(visitor.getByRole("link", { name: newTitle })).toBeVisible();
 

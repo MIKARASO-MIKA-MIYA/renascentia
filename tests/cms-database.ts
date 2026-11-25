@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 
 export const ownerId = "10000000-0000-4000-8000-000000000001";
@@ -27,12 +27,12 @@ export async function testDatabase() {
     create policy broad_test_policy on storage.objects for all using (true) with check (true);
     insert into auth.users values ('${ownerId}'), ('${editorId}'), ('${strangerId}');
   `);
-  await db.exec(
-    await readFile(
-      "supabase/migrations/20261125000100_content_editor.sql",
-      "utf8",
-    ),
-  );
+  const directory = "supabase/migrations";
+  for (const file of (await readdir(directory))
+    .filter((name) => name.endsWith(".sql"))
+    .sort()) {
+    await db.exec(await readFile(directory + "/" + file, "utf8"));
+  }
   await db.exec(`
     insert into public.profiles (user_id, display_name, role)
     values ('${ownerId}', 'Owner', 'owner'), ('${editorId}', 'Editor', 'editor');
